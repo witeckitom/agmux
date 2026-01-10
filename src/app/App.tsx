@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { Box, useApp as useInkApp } from 'ink';
 import { AppProvider, useApp } from '../context/AppContext.js';
+import { SettingsProvider } from '../context/SettingsContext.js';
 import { TopBar } from '../components/TopBar.js';
 import { MainView } from '../components/MainView.js';
 import { CommandMode } from '../components/CommandMode.js';
@@ -98,8 +99,10 @@ interface AppProps {
 
 export function App({ database, projectRoot }: AppProps) {
   return (
-    <AppProvider database={database} projectRoot={projectRoot}>
-      <AppContent database={database} />
-    </AppProvider>
+    <SettingsProvider database={database}>
+      <AppProvider database={database} projectRoot={projectRoot}>
+        <AppContent database={database} />
+      </AppProvider>
+    </SettingsProvider>
   );
 }

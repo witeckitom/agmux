@@ -45,9 +45,9 @@ export const TopBar = React.memo(function TopBar() {
           </Text>
         </Box>
         <Box paddingX={1}>
-          <Text dimColor>
-            {runningCount} running | <Text bold>:</Text> nav | <Text bold>LL</Text> logs
-          </Text>
+                <Text dimColor>
+                  {runningCount} running | <Text bold>:</Text> nav | <Text bold>Shift+L</Text> logs
+                </Text>
         </Box>
       </Box>
       {viewCommands.length > 0 && !state.commandMode && (

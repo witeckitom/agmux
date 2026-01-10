@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useInput, useApp as useInkApp } from 'ink';
 import { useApp } from '../context/AppContext.js';
 import { logger } from '../utils/logger.js';
+import { groupTasksByStatus } from '../utils/taskGrouping.js';
 
 // Helper function to get autocomplete suggestion (single best match)
 function getAutocompleteSuggestion(input: string): string | null {
@@ -18,6 +19,7 @@ function getAutocompleteSuggestion(input: string): string | null {
     { name: 'hooks', aliases: ['hook'] },
     { name: 'profiles', aliases: ['profile'] },
     { name: 'agents', aliases: ['agent'] },
+    { name: 'settings', aliases: ['setting'] },
     { name: 'quit', aliases: ['q'] },
   ];
 
@@ -41,11 +43,11 @@ export function useKeyboard() {
     toggleLogs,
     deleteRun,
     hideConfirmation,
+    setCurrentView,
+    setSelectedRunId,
+    toggleTaskStatus,
   } = useApp();
 
-  // Track last key press for double-key sequences like 'LL'
-  const [lastKey, setLastKey] = useState<string | null>(null);
-  const [lastKeyTime, setLastKeyTime] = useState<number>(0);
 
   useInput((input, key) => {
     // Confirmation dialog handling (takes priority)
@@ -92,30 +94,11 @@ export function useKeyboard() {
       return;
     }
 
-    // Handle double-L for logs toggle (LL) - must be checked first
-    if (input === 'l' || input === 'L') {
-      const now = Date.now();
-      if ((lastKey === 'l' || lastKey === 'L') && now - lastKeyTime < 500) {
-        // Double L detected - toggle logs
-        logger.info('Toggling logs visibility', 'Keyboard');
-        toggleLogs();
-        setLastKey(null);
-        setLastKeyTime(0);
-        return;
-      }
-      // Single L - remember it for potential double-L
-      setLastKey(input);
-      setLastKeyTime(now);
-      // Continue to check if it's used for navigation in tasks view
-    } else {
-      // Reset last key tracking if it's not L
-      if (lastKey === 'l' || lastKey === 'L') {
-        // Single L was pressed but not followed by another L - reset after a delay
-        setTimeout(() => {
-          setLastKey(null);
-          setLastKeyTime(0);
-        }, 500);
-      }
+    // Handle Shift+L for logs toggle
+    if (key.shift && (input === 'l' || input === 'L')) {
+      logger.info('Toggling logs visibility', 'Keyboard');
+      toggleLogs();
+      return;
     }
 
     // Normal mode handling
@@ -126,6 +109,13 @@ export function useKeyboard() {
     }
 
     if (key.escape) {
+      // Return to tasks view if in task-detail view
+      if (state.currentView === 'task-detail') {
+        logger.debug('Returning to tasks view', 'Keyboard');
+        setCurrentView('tasks');
+        setSelectedRunId(null);
+        return;
+      }
       // Close detail pane or cancel action
       return;
     }
@@ -138,37 +128,113 @@ export function useKeyboard() {
 
     // Navigation - only in tasks view for now
     if (state.currentView === 'tasks') {
+      // Group tasks by status for column-aware navigation
+      const taskGroups = groupTasksByStatus(state.runs);
+      
+      // Find which column and position the selected task is in
+      let currentColumnIndex = -1;
+      let currentTaskIndexInColumn = -1;
+      let currentRunId: string | null = null;
+      
+      if (state.selectedIndex >= 0 && state.selectedIndex < state.runs.length) {
+        currentRunId = state.runs[state.selectedIndex].id;
+        
+        // Find which column contains this task
+        for (let colIdx = 0; colIdx < taskGroups.length; colIdx++) {
+          const taskIdx = taskGroups[colIdx].runs.findIndex(r => r.id === currentRunId);
+          if (taskIdx >= 0) {
+            currentColumnIndex = colIdx;
+            currentTaskIndexInColumn = taskIdx;
+            break;
+          }
+        }
+      }
+      
+      // If no task selected, start at first task of first column
+      if (currentColumnIndex === -1 && taskGroups.length > 0 && taskGroups[0].runs.length > 0) {
+        currentColumnIndex = 0;
+        currentTaskIndexInColumn = 0;
+        const firstRunId = taskGroups[0].runs[0].id;
+        const firstRunIndex = state.runs.findIndex(r => r.id === firstRunId);
+        if (firstRunIndex >= 0) {
+          setSelectedIndex(firstRunIndex);
+        }
+        return;
+      }
+      
+      // Handle vim-style navigation
       if (key.upArrow || input === 'k') {
-        setSelectedIndex(state.selectedIndex - 1);
+        // Move up within column
+        if (currentColumnIndex >= 0 && currentTaskIndexInColumn > 0) {
+          const newTaskIndexInColumn = currentTaskIndexInColumn - 1;
+          const newRunId = taskGroups[currentColumnIndex].runs[newTaskIndexInColumn].id;
+          const newRunIndex = state.runs.findIndex(r => r.id === newRunId);
+          if (newRunIndex >= 0) {
+            setSelectedIndex(newRunIndex);
+          }
+        }
         return;
       }
 
       if (key.downArrow || input === 'j') {
-        setSelectedIndex(state.selectedIndex + 1);
+        // Move down within column
+        if (currentColumnIndex >= 0 && currentTaskIndexInColumn < taskGroups[currentColumnIndex].runs.length - 1) {
+          const newTaskIndexInColumn = currentTaskIndexInColumn + 1;
+          const newRunId = taskGroups[currentColumnIndex].runs[newTaskIndexInColumn].id;
+          const newRunIndex = state.runs.findIndex(r => r.id === newRunId);
+          if (newRunIndex >= 0) {
+            setSelectedIndex(newRunIndex);
+          }
+        }
         return;
       }
 
-      // Left/right navigation for card grid
+      // Left navigation (h) - move to previous column, same row position
       if (key.leftArrow || input === 'h') {
-        setSelectedIndex(Math.max(0, state.selectedIndex - 1));
+        if (currentColumnIndex > 0) {
+          const targetColumn = taskGroups[currentColumnIndex - 1];
+          const targetRow = Math.min(currentTaskIndexInColumn, targetColumn.runs.length - 1);
+          if (targetRow >= 0 && targetRow < targetColumn.runs.length) {
+            const newRunId = targetColumn.runs[targetRow].id;
+            const newRunIndex = state.runs.findIndex(r => r.id === newRunId);
+            if (newRunIndex >= 0) {
+              setSelectedIndex(newRunIndex);
+            }
+          }
+        }
+        return;
+      }
+
+      // Right navigation (l) - move to next column, same row position
+      if (input === 'l' || input === 'L') {
+        // Single L - navigate right (Shift+L is handled above for logs toggle)
+        if (currentColumnIndex >= 0 && currentColumnIndex < taskGroups.length - 1) {
+          const targetColumn = taskGroups[currentColumnIndex + 1];
+          const targetRow = Math.min(currentTaskIndexInColumn, targetColumn.runs.length - 1);
+          if (targetRow >= 0 && targetRow < targetColumn.runs.length) {
+            const newRunId = targetColumn.runs[targetRow].id;
+            const newRunIndex = state.runs.findIndex(r => r.id === newRunId);
+            if (newRunIndex >= 0) {
+              setSelectedIndex(newRunIndex);
+            }
+          }
+        }
         return;
       }
 
       if (key.rightArrow) {
-        setSelectedIndex(Math.min(state.runs.length - 1, state.selectedIndex + 1));
-        return;
-      }
-
-      // Handle 'l' for right navigation only if it's not part of double-L
-      if (input === 'l' || input === 'L') {
-        const now = Date.now();
-        // If we just pressed L and it's been less than 500ms, wait to see if it's double-L
-        if (lastKey === 'l' || lastKey === 'L') {
-          // This is the second L - already handled above, so don't navigate
-          return;
+        // Arrow key right navigation
+        if (currentColumnIndex >= 0 && currentColumnIndex < taskGroups.length - 1) {
+          const targetColumn = taskGroups[currentColumnIndex + 1];
+          const targetRow = Math.min(currentTaskIndexInColumn, targetColumn.runs.length - 1);
+          if (targetRow >= 0 && targetRow < targetColumn.runs.length) {
+            const newRunId = targetColumn.runs[targetRow].id;
+            const newRunIndex = state.runs.findIndex(r => r.id === newRunId);
+            if (newRunIndex >= 0) {
+              setSelectedIndex(newRunIndex);
+            }
+          }
         }
-        // Single L - navigate right
-        setSelectedIndex(Math.min(state.runs.length - 1, state.selectedIndex + 1));
         return;
       }
     } else {
@@ -205,6 +271,19 @@ export function useKeyboard() {
         return;
       }
 
+      // Enter to view task detail
+      if (key.return) {
+        if (state.runs.length === 0 || state.selectedIndex < 0 || state.selectedIndex >= state.runs.length) {
+          logger.warn('No task selected to view', 'Keyboard');
+          return;
+        }
+        const selectedRun = state.runs[state.selectedIndex];
+        logger.info(`Viewing task detail: ${selectedRun.id}`, 'Keyboard');
+        setSelectedRunId(selectedRun.id);
+        setCurrentView('task-detail');
+        return;
+      }
+
       // Shift+D for delete task
       if (key.shift && (input === 'd' || input === 'D')) {
         if (state.runs.length === 0 || state.selectedIndex < 0 || state.selectedIndex >= state.runs.length) {
@@ -214,6 +293,19 @@ export function useKeyboard() {
         const selectedRun = state.runs[state.selectedIndex];
         logger.info(`Delete requested for task: ${selectedRun.id}`, 'Keyboard');
         deleteRun(selectedRun.id);
+        return;
+      }
+    }
+
+    // Task detail view hotkeys
+    if (state.currentView === 'task-detail') {
+      if (input === 'S' || input === 's') {
+        if (!state.selectedRunId) {
+          logger.warn('No task selected', 'Keyboard');
+          return;
+        }
+        logger.info(`Toggling task status: ${state.selectedRunId}`, 'Keyboard');
+        toggleTaskStatus(state.selectedRunId);
         return;
       }
     }

@@ -7,6 +7,8 @@ import { HooksView } from '../views/HooksView.js';
 import { ProfilesView } from '../views/ProfilesView.js';
 import { AgentsView } from '../views/AgentsView.js';
 import { NewTaskView } from '../views/NewTaskView.js';
+import { TaskDetailView } from '../views/TaskDetailView.js';
+import { SettingsView } from '../views/SettingsView.js';
 
 export function ViewRouter() {
   const { state } = useApp();
@@ -16,6 +18,8 @@ export function ViewRouter() {
       return <TasksView />;
     case 'new-task':
       return <NewTaskView />;
+    case 'task-detail':
+      return <TaskDetailView />;
     case 'skills':
       return <SkillsView />;
     case 'commands':
@@ -26,6 +30,8 @@ export function ViewRouter() {
       return <ProfilesView />;
     case 'agents':
       return <AgentsView />;
+    case 'settings':
+      return <SettingsView />;
     default:
       return <TasksView />;
   }

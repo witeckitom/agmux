@@ -77,11 +77,11 @@ export function LogView({ height }: LogViewProps) {
       flexDirection="column"
       height={height}
     >
-      <Box paddingX={1} borderBottom={true}>
-        <Text bold>
-          Application Logs ({logs.length} total) - Use ↑/↓ to scroll, 'LL' to hide
-        </Text>
-      </Box>
+            <Box paddingX={1} borderBottom={true}>
+              <Text bold>
+                Application Logs ({logs.length} total) - Use ↑/↓ to scroll, 'Shift+L' to hide
+              </Text>
+            </Box>
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
         {visibleLogs.length === 0 ? (
           <Box padding={1}>

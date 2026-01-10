@@ -19,6 +19,7 @@ interface AppState {
   projectRoot: string;
   currentBranch?: string;
   confirmation: ConfirmationState | null;
+  selectedRunId: string | null;
 }
 
 interface AppContextValue {
@@ -35,6 +36,8 @@ interface AppContextValue {
   showConfirmation: (message: string, onConfirm: () => void, onCancel?: () => void) => void;
   hideConfirmation: () => void;
   deleteRun: (runId: string) => void;
+  setSelectedRunId: (runId: string | null) => void;
+  toggleTaskStatus: (runId: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -56,6 +59,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     projectRoot,
     currentBranch: undefined,
     confirmation: null,
+    selectedRunId: null,
   });
 
   const refreshRuns = useCallback(() => {
@@ -144,6 +148,10 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
         case 'agent':
           setCurrentView('agents');
           break;
+        case 'settings':
+        case 'setting':
+          setCurrentView('settings');
+          break;
         case 'quit':
         case 'q':
           // Quit will be handled by useKeyboard hook
@@ -209,6 +217,33 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     [state.runs, database, refreshRuns, showConfirmation]
   );
 
+  const setSelectedRunId = useCallback((runId: string | null) => {
+    setState(prev => ({ ...prev, selectedRunId: runId }));
+  }, []);
+
+  const toggleTaskStatus = useCallback(
+    (runId: string) => {
+      const run = state.runs.find(r => r.id === runId);
+      if (!run) {
+        logger.warn(`Attempted to toggle status for non-existent run: ${runId}`, 'App');
+        return;
+      }
+
+      if (run.status === 'queued' || run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+        // Start the task
+        logger.info(`Starting task: ${runId}`, 'App');
+        database.updateRun(runId, { status: 'running', phase: 'worktree_creation' });
+        refreshRuns();
+      } else if (run.status === 'running') {
+        // Stop the task
+        logger.info(`Stopping task: ${runId}`, 'App');
+        database.updateRun(runId, { status: 'cancelled' });
+        refreshRuns();
+      }
+    },
+    [state.runs, database, refreshRuns]
+  );
+
 
   return (
     <AppContext.Provider
@@ -226,6 +261,8 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
         showConfirmation,
         hideConfirmation,
         deleteRun,
+        setSelectedRunId,
+        toggleTaskStatus,
       }}
     >
       {children}

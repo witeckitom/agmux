@@ -42,4 +42,8 @@ export interface Preference {
   value: string;
 }
 
-export type ViewType = 'tasks' | 'skills' | 'commands' | 'hooks' | 'profiles' | 'agents' | 'new-task';
+export type ViewType = 'tasks' | 'skills' | 'commands' | 'hooks' | 'profiles' | 'agents' | 'new-task' | 'task-detail' | 'settings';
+
+export type AgentType = 'claude' | 'cursor';
+export type ThemeType = 'default' | 'matrix';
+export type EditorType = 'vscode' | 'custom';

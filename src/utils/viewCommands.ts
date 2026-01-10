@@ -37,6 +37,11 @@ export function getViewCommands(view: ViewType): ViewCommand[] {
       return [
         { key: 'r', description: 'Refresh agents' },
       ];
+    case 'task-detail':
+      return [
+        { key: 'S', description: 'Start/Stop task' },
+        { key: 'Esc', description: 'Back to tasks' },
+      ];
     default:
       return [];
   }
