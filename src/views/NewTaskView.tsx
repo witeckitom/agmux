@@ -43,10 +43,11 @@ export function NewTaskView() {
 
     try {
       // Create a new run/task
+      // Don't set worktreePath yet - it will be set when the task is started and worktree is created
       const run = database.createRun({
         status: 'queued',
         phase: 'worktree_creation',
-        worktreePath: `/tmp/agent-orch-${Date.now()}`, // Temporary path
+        worktreePath: '', // Empty until worktree is created
         baseBranch: 'main',
         agentProfileId: 'default',
         conversationId: null,

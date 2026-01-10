@@ -5,6 +5,8 @@ import { logger } from '../utils/logger.js';
 import { TaskExecutor } from '../services/TaskExecutor.js';
 import { mergeToBranch, getPRUrl } from '../utils/gitUtils.js';
 import { execSync } from 'child_process';
+import { resolve, join } from 'path';
+import { existsSync, readdirSync } from 'fs';
 
 interface ConfirmationState {
   message: string;
@@ -49,6 +51,7 @@ interface AppContextValue {
   mergeTaskBranch: (runId: string, targetBranch: string) => Promise<void>;
   openPRForTask: (runId: string) => Promise<void>;
   markTaskComplete: (runId: string) => void;
+  openWorktreeInVSCode: (runId: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -79,11 +82,35 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
   const refreshRuns = useCallback(() => {
     const runs = database.getAllRuns();
     logger.debug(`Refreshing runs: found ${runs.length} runs`, 'App');
-    setState(prev => ({
-      ...prev,
-      runs,
-      selectedIndex: Math.min(prev.selectedIndex, Math.max(0, runs.length - 1)),
-    }));
+    setState(prev => {
+      // Only update if runs actually changed (by comparing IDs)
+      const prevRunIds = prev.runs.map(r => r.id).join(',');
+      const newRunIds = runs.map(r => r.id).join(',');
+      
+      if (prevRunIds === newRunIds) {
+        // Check if any run data changed
+        const runsChanged = prev.runs.some((prevRun, index) => {
+          const newRun = runs[index];
+          return !newRun || 
+                 prevRun.status !== newRun.status ||
+                 prevRun.progressPercent !== newRun.progressPercent ||
+                 prevRun.phase !== newRun.phase ||
+                 prevRun.readyToAct !== newRun.readyToAct ||
+                 prevRun.durationMs !== newRun.durationMs;
+        });
+        
+        if (!runsChanged) {
+          // No changes, return previous state to prevent re-render
+          return prev;
+        }
+      }
+      
+      return {
+        ...prev,
+        runs,
+        selectedIndex: Math.min(prev.selectedIndex, Math.max(0, runs.length - 1)),
+      };
+    });
   }, [database]);
 
   const setCurrentView = useCallback((view: ViewType) => {
@@ -406,6 +433,67 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     [state.runs, database, refreshRuns]
   );
 
+  const openWorktreeInVSCode = useCallback(
+    (runId: string) => {
+      const run = state.runs.find(r => r.id === runId);
+      if (!run) {
+        logger.warn(`Cannot open worktree: run ${runId} not found`, 'App');
+        return;
+      }
+
+      try {
+        // Find the actual worktree path (handle empty/temp paths)
+        let worktreePath = run.worktreePath || '';
+        
+        // If path is empty or temp, try to find it by run ID
+        if (!worktreePath || worktreePath.startsWith('/tmp/') || worktreePath.trim() === '') {
+          const projectRoot = process.cwd();
+          const worktreesDir = join(projectRoot, '.worktrees');
+          
+          if (existsSync(worktreesDir)) {
+            try {
+              const worktreeDirs = readdirSync(worktreesDir, { withFileTypes: true })
+                .filter(dirent => dirent.isDirectory())
+                .map(dirent => join(worktreesDir, dirent.name));
+              
+              const runIdPrefix = runId.slice(0, 8);
+              for (const dir of worktreeDirs) {
+                const dirName = dir.split('/').pop() || '';
+                if (dirName.includes(runIdPrefix)) {
+                  worktreePath = dir;
+                  break;
+                }
+              }
+            } catch (error: any) {
+              logger.warn(`Could not search for worktree: ${error.message}`, 'App');
+            }
+          }
+        }
+        
+        if (!worktreePath || worktreePath.startsWith('/tmp/') || worktreePath.trim() === '') {
+          logger.warn(`Cannot open worktree: no valid worktree path found for run ${runId}`, 'App');
+          return;
+        }
+
+        // Resolve to absolute path
+        const absolutePath = worktreePath.startsWith('/') ? worktreePath : resolve(process.cwd(), worktreePath);
+        
+        // Verify path exists
+        if (!existsSync(absolutePath)) {
+          logger.warn(`Worktree path does not exist: ${absolutePath}`, 'App');
+          return;
+        }
+
+        // Open in VSCode using 'code' command
+        execSync(`code "${absolutePath}"`, { stdio: 'ignore' });
+        logger.info(`Opened worktree in VSCode for task ${runId}`, 'App', { worktreePath: absolutePath });
+      } catch (error: any) {
+        logger.error(`Failed to open worktree in VSCode for task ${runId}`, 'App', { error });
+      }
+    },
+    [state.runs]
+  );
+
   return (
     <AppContext.Provider
       value={{
@@ -431,6 +519,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
         mergeTaskBranch,
         openPRForTask,
         markTaskComplete,
+        openWorktreeInVSCode,
       }}
     >
       {children}

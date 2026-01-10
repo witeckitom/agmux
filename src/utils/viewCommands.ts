@@ -44,6 +44,7 @@ export function getViewCommands(view: ViewType): ViewCommand[] {
     case 'task-detail':
       return [
         { key: 'S', description: 'Start/Stop task' },
+        { key: 'Shift+C', description: 'Open worktree in VSCode' },
         { key: 'Esc', description: 'Back to tasks' },
       ];
     default:

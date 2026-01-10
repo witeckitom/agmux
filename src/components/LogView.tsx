@@ -32,16 +32,10 @@ export function LogView({ height }: LogViewProps) {
   const [scrollOffset, setScrollOffset] = useState(0);
 
   useEffect(() => {
-    // Initial load
+    // Load logs once when the view is opened
+    // Don't subscribe to updates - keep the view static
     setLogs(logger.getLogs(200)); // Show last 200 logs
-
-    // Subscribe to new logs
-    const unsubscribe = logger.subscribe(() => {
-      setLogs(logger.getLogs(200));
-    });
-
-    return unsubscribe;
-  }, []);
+  }, []); // Empty dependency array means this runs once on mount
 
   // Handle keyboard input for scrolling logs
   useInput((input, key) => {
@@ -58,6 +52,9 @@ export function LogView({ height }: LogViewProps) {
 
   // Calculate visible logs based on scroll offset
   const visibleLogs = useMemo(() => {
+    if (logs.length === 0) {
+      return [];
+    }
     if (scrollOffset === 0) {
       // Show most recent logs
       return logs.slice(-height);
@@ -88,36 +85,85 @@ export function LogView({ height }: LogViewProps) {
             <Text dimColor>No logs yet</Text>
           </Box>
         ) : (
-          visibleLogs.map(log => {
-            const timeStr = log.timestamp.toLocaleTimeString();
-            const levelStr = formatLogLevel(log.level);
-            const color = getLogColor(log.level);
+          visibleLogs.map((log, index) => {
+            try {
+              // Safely extract log properties with defaults
+              const timestamp = log?.timestamp;
+              const timeStr = timestamp instanceof Date 
+                ? timestamp.toLocaleTimeString() 
+                : (typeof timestamp === 'string' ? timestamp : '--:--:--');
+              
+              const level = log?.level || 'info';
+              const levelStr = formatLogLevel(level);
+              const color = getLogColor(level);
+              
+              // Safely extract message - handle various types
+              let message = '';
+              if (typeof log?.message === 'string') {
+                message = log.message;
+              } else if (log?.message != null) {
+                message = String(log.message);
+              }
+              
+              const context = typeof log?.context === 'string' ? log.context : '';
 
-            return (
-              <Box key={log.id} paddingX={1}>
-                <Text>
-                  <Text dimColor>{timeStr}</Text>
-                  {' '}
-                  <Text color={color} bold>
-                    [{levelStr}]
-                  </Text>
-                  {log.context && (
-                    <>
-                      {' '}
-                      <Text dimColor>[{log.context}]</Text>
-                    </>
-                  )}
-                  {' '}
-                  <Text>{log.message}</Text>
-                  {log.metadata && Object.keys(log.metadata).length > 0 && (
-                    <Text dimColor>
-                      {' '}
-                      {JSON.stringify(log.metadata)}
+              // Safely stringify metadata, handling circular references and non-serializable values
+              let metadataStr = '';
+              if (log?.metadata && typeof log.metadata === 'object') {
+                try {
+                  // Filter out functions, undefined, and circular references
+                  const safeMetadata = JSON.parse(JSON.stringify(log.metadata, (key, value) => {
+                    if (typeof value === 'function') return '[Function]';
+                    if (value === undefined) return '[undefined]';
+                    if (value instanceof Error) return { message: value.message, stack: value.stack };
+                    return value;
+                  }));
+                  if (Object.keys(safeMetadata).length > 0) {
+                    metadataStr = ' ' + JSON.stringify(safeMetadata);
+                  }
+                } catch (metaError) {
+                  // If metadata can't be stringified, just skip it
+                  metadataStr = '';
+                }
+              }
+
+              const logId = log?.id || `log-${index}`;
+
+              return (
+                <Box key={logId} paddingX={1}>
+                  <Text>
+                    <Text dimColor>{timeStr}</Text>
+                    {' '}
+                    <Text color={color} bold>
+                      [{levelStr}]
                     </Text>
-                  )}
-                </Text>
-              </Box>
-            );
+                    {context && (
+                      <>
+                        {' '}
+                        <Text dimColor>[{context}]</Text>
+                      </>
+                    )}
+                    {' '}
+                    <Text>{message}</Text>
+                    {metadataStr && (
+                      <Text dimColor>{metadataStr}</Text>
+                    )}
+                  </Text>
+                </Box>
+              );
+            } catch (error: any) {
+              // Fallback if log entry is malformed - show minimal info
+              const logId = log?.id || `log-error-${index}`;
+              const errorMsg = error?.message || 'Unknown error';
+              return (
+                <Box key={logId} paddingX={1}>
+                  <Text color="red">
+                    [ERR] Error displaying log entry: {errorMsg}
+                    {log?.message && ` (message: ${String(log.message).substring(0, 50)})`}
+                  </Text>
+                </Box>
+              );
+            }
           })
         )}
       </Box>

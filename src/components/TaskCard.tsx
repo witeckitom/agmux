@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { Run } from '../models/types.js';
 
@@ -46,7 +46,7 @@ function formatDuration(ms: number, showSeconds: boolean = false): string {
   return '< 1 min';
 }
 
-export function TaskCard({ run, selected = false, width = 45 }: TaskCardProps) {
+export const TaskCard = React.memo(function TaskCard({ run, selected = false, width = 45 }: TaskCardProps) {
   const [runningDuration, setRunningDuration] = useState<number>(0);
 
   useEffect(() => {
@@ -138,4 +138,17 @@ export function TaskCard({ run, selected = false, width = 45 }: TaskCardProps) {
       </Box>
     </Box>
   );
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison function to prevent unnecessary re-renders
+  // Only re-render if run data actually changed or selection changed
+  return (
+    prevProps.run.id === nextProps.run.id &&
+    prevProps.run.status === nextProps.run.status &&
+    prevProps.run.progressPercent === nextProps.run.progressPercent &&
+    prevProps.run.phase === nextProps.run.phase &&
+    prevProps.run.readyToAct === nextProps.run.readyToAct &&
+    prevProps.run.durationMs === nextProps.run.durationMs &&
+    prevProps.selected === nextProps.selected &&
+    prevProps.width === nextProps.width
+  );
+});

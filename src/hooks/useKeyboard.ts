@@ -51,6 +51,7 @@ export function useKeyboard() {
     mergeTaskBranch,
     openPRForTask,
     markTaskComplete,
+    openWorktreeInVSCode,
   } = useApp();
 
 
@@ -338,6 +339,17 @@ export function useKeyboard() {
                }
                logger.info(`Toggling task status: ${state.selectedRunId}`, 'Keyboard');
                toggleTaskStatus(state.selectedRunId);
+               return;
+             }
+
+             // Shift+C to open worktree in VSCode
+             if (key.shift && (input === 'c' || input === 'C')) {
+               if (!state.selectedRunId) {
+                 logger.warn('No task selected', 'Keyboard');
+                 return;
+               }
+               logger.info(`Opening worktree in VSCode for task: ${state.selectedRunId}`, 'Keyboard');
+               openWorktreeInVSCode(state.selectedRunId);
                return;
              }
 

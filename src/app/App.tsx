@@ -35,7 +35,7 @@ function AppContent({ database }: AppContentProps) {
     const interval = setInterval(() => {
       refreshRuns();
       logger.debug('Refreshed runs', 'App', { runCount: state.runs.length });
-    }, 3000); // Increased to 3 seconds
+    }, 5000); // 5 seconds refresh interval
     return () => clearInterval(interval);
   }, [refreshRuns, state.commandMode, state.runs.length]);
 
