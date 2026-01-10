@@ -1,0 +1,53 @@
+{
+  "name": "agent-orch",
+  "version": "0.1.0",
+  "description": "A local, terminal-based orchestration interface for managing, running, and observing multiple AI agents concurrently",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "agent-orch": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.tsx",
+    "start": "node dist/index.js",
+    "test": "vitest",
+    "test:unit": "vitest run --dir src",
+    "test:e2e": "vitest run --dir e2e",
+    "test:watch": "vitest watch",
+    "test:coverage": "vitest run --coverage",
+    "test:setup": "tsx scripts/test-setup.ts",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "cli",
+    "tui",
+    "ai",
+    "agents",
+    "orchestration"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ink": "^4.4.1",
+    "react": "^18.2.0",
+    "better-sqlite3": "^11.3.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.14.10",
+    "@types/react": "^18.3.3",
+    "@typescript-eslint/eslint-plugin": "^7.13.1",
+    "@typescript-eslint/parser": "^7.13.1",
+    "@vitest/coverage-v8": "^1.6.0",
+    "eslint": "^8.57.0",
+    "ink-testing-library": "^2.1.0",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
