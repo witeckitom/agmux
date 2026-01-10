@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, useApp as useInkApp } from 'ink';
 import { AppProvider, useApp } from '../context/AppContext.js';
 import { SettingsProvider } from '../context/SettingsContext.js';
@@ -10,8 +10,15 @@ import { LogView } from '../components/LogView.js';
 import { ConfirmationDialog } from '../components/ConfirmationDialog.js';
 import { MergeBranchPromptView } from '../views/MergeBranchPromptView.js';
 import { KeyboardHandler } from '../components/KeyboardHandler.js';
+import { SplashScreen } from '../components/SplashScreen.js';
 import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+// Read version from package.json
+const packageJsonPath = join(process.cwd(), 'package.json');
+const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
 
 interface AppContentProps {
   database: DatabaseManager;
@@ -21,6 +28,8 @@ interface AppContentProps {
 const AppContent = React.memo(function AppContent({ database }: AppContentProps) {
   const { exit } = useInkApp();
   const appContext = useApp();
+  const [showSplash, setShowSplash] = useState(true);
+  
   // Only read what we need - don't destructure state to avoid subscribing to all changes
   const commandMode = appContext.state.commandMode;
   const logsVisible = appContext.state.logsVisible;
@@ -51,7 +60,7 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
 
   // Calculate heights for layout - memoize to prevent recalculation
   const layoutHeights = useMemo(() => {
-    const topBarHeight = 4; // TopBar with commands
+    const topBarHeight = 5; // TopBar with ASCII logo
     const commandModeHeight = commandMode ? 3 : 0;
     const logViewHeight = logsVisible ? 8 : 0;
     const mainViewHeight = Math.max(
@@ -102,6 +111,22 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
             </Box>
           );
         }
+
+  // Show splash screen on initial load
+  if (showSplash) {
+    return (
+      <Box 
+        flexDirection="column" 
+        width={terminalDimensions.width}
+        height={terminalDimensions.height}
+      >
+        <SplashScreen 
+          version={packageJson.version} 
+          onComplete={() => setShowSplash(false)} 
+        />
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column">
