@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Box, Text } from 'ink';
 import { useInput } from 'ink';
 import { useApp } from '../context/AppContext.js';
@@ -12,7 +12,8 @@ interface MergeBranchPromptViewProps {
 }
 
 export function MergeBranchPromptView({ runId, defaultBranch, onConfirm, onCancel }: MergeBranchPromptViewProps) {
-  const [branchInput, setBranchInput] = useState(defaultBranch);
+  const branchInputRef = useRef<string>(defaultBranch);
+  const [branchInputDisplay, setBranchInputDisplay] = useState(0); // Counter to force re-render
 
   useInput((input, key) => {
     if (key.escape) {
@@ -20,18 +21,20 @@ export function MergeBranchPromptView({ runId, defaultBranch, onConfirm, onCance
       return;
     }
 
-    if (key.return && branchInput.trim()) {
-      onConfirm(branchInput.trim());
+    if (key.return && branchInputRef.current.trim()) {
+      onConfirm(branchInputRef.current.trim());
       return;
     }
 
     if (key.backspace || key.delete) {
-      setBranchInput(prev => prev.slice(0, -1));
+      branchInputRef.current = branchInputRef.current.slice(0, -1);
+      setBranchInputDisplay(x => x + 1); // Force re-render of input display only
       return;
     }
 
     if (input && input.length === 1) {
-      setBranchInput(prev => prev + input);
+      branchInputRef.current = branchInputRef.current + input;
+      setBranchInputDisplay(x => x + 1); // Force re-render of input display only
       return;
     }
   });
@@ -46,7 +49,7 @@ export function MergeBranchPromptView({ runId, defaultBranch, onConfirm, onCance
       </Box>
       <Box marginBottom={1}>
         <Text>
-          <Text color="cyan">{branchInput}</Text>
+          <Text color="cyan">{branchInputRef.current}</Text>
           <Text color="yellow">█</Text>
         </Text>
       </Box>

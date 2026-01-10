@@ -2,13 +2,14 @@ import React, { useEffect, useMemo } from 'react';
 import { Box, useApp as useInkApp } from 'ink';
 import { AppProvider, useApp } from '../context/AppContext.js';
 import { SettingsProvider } from '../context/SettingsContext.js';
+import { InputProvider } from '../context/InputContext.js';
 import { TopBar } from '../components/TopBar.js';
 import { MainView } from '../components/MainView.js';
 import { CommandMode } from '../components/CommandMode.js';
 import { LogView } from '../components/LogView.js';
 import { ConfirmationDialog } from '../components/ConfirmationDialog.js';
 import { MergeBranchPromptView } from '../views/MergeBranchPromptView.js';
-import { useKeyboard } from '../hooks/useKeyboard.js';
+import { KeyboardHandler } from '../components/KeyboardHandler.js';
 import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
 
@@ -16,35 +17,30 @@ interface AppContentProps {
   database: DatabaseManager;
 }
 
-function AppContent({ database }: AppContentProps) {
+// Memoize AppContent to prevent re-renders when CommandMode updates
+const AppContent = React.memo(function AppContent({ database }: AppContentProps) {
   const { exit } = useInkApp();
-  const { state, refreshRuns, executeCommand, hideMergePrompt, mergeTaskBranch } = useApp();
+  const appContext = useApp();
+  // Only read what we need - don't destructure state to avoid subscribing to all changes
+  const commandMode = appContext.state.commandMode;
+  const logsVisible = appContext.state.logsVisible;
+  const mergePrompt = appContext.state.mergePrompt;
+  const confirmation = appContext.state.confirmation;
+  const currentView = appContext.state.currentView;
+  const runsLength = appContext.state.runs.length;
 
-  // Set up keyboard handling
-  useKeyboard();
-
-  // Initial load and periodic refresh
-  // Pause refresh when in command mode to prevent flickering
+  // Initial load only - everything else is reactive
   useEffect(() => {
     logger.info('Application started', 'App');
-    refreshRuns();
-    if (state.commandMode) {
-      // Don't refresh while typing commands
-      return;
-    }
-    const interval = setInterval(() => {
-      refreshRuns();
-      logger.debug('Refreshed runs', 'App', { runCount: state.runs.length });
-    }, 5000); // 5 seconds refresh interval
-    return () => clearInterval(interval);
-  }, [refreshRuns, state.commandMode, state.runs.length]);
+    appContext.refreshRuns();
+  }, [appContext.refreshRuns]);
 
   // Handle quit command
   useEffect(() => {
-    if (!state.commandMode && state.currentView === 'tasks' && state.runs.length === 0) {
+    if (!commandMode && currentView === 'tasks' && runsLength === 0) {
       // Could add auto-quit logic here if needed
     }
-  }, [state]);
+  }, [commandMode, currentView, runsLength]);
 
   // Get terminal dimensions for full-screen layout
   // Memoize to prevent recalculation on every render
@@ -53,37 +49,36 @@ function AppContent({ database }: AppContentProps) {
     width: process.stdout.columns || 80,
   }), []);
 
-  // Calculate heights for layout
-  const topBarHeight = 4; // TopBar with commands
-  const commandModeHeight = state.commandMode ? 3 : 0;
-  const logViewHeight = state.logsVisible ? 8 : 0;
-  const mainViewHeight = Math.max(
-    1,
-    terminalDimensions.height - topBarHeight - commandModeHeight - logViewHeight
-  );
+  // Calculate heights for layout - memoize to prevent recalculation
+  const layoutHeights = useMemo(() => {
+    const topBarHeight = 4; // TopBar with commands
+    const commandModeHeight = commandMode ? 3 : 0;
+    const logViewHeight = logsVisible ? 8 : 0;
+    const mainViewHeight = Math.max(
+      1,
+      terminalDimensions.height - topBarHeight - commandModeHeight - logViewHeight
+    );
+    return { topBarHeight, commandModeHeight, logViewHeight, mainViewHeight };
+  }, [terminalDimensions.height, commandMode, logsVisible]);
 
         // If merge prompt is showing, render it instead of main content
-        if (state.mergePrompt) {
+        if (mergePrompt) {
           return (
-            <Box
-              flexDirection="column"
-              width={terminalDimensions.width}
-              height={terminalDimensions.height}
-            >
+            <Box flexDirection="column">
               <MergeBranchPromptView
-                runId={state.mergePrompt.runId}
-                defaultBranch={state.mergePrompt.defaultBranch}
+                runId={mergePrompt.runId}
+                defaultBranch={mergePrompt.defaultBranch}
                 onConfirm={async (branch: string) => {
                   try {
-                    await mergeTaskBranch(state.mergePrompt!.runId, branch);
-                    hideMergePrompt();
+                    await appContext.mergeTaskBranch(mergePrompt!.runId, branch);
+                    appContext.hideMergePrompt();
                   } catch (error) {
                     logger.error('Merge failed', 'App', { error });
                     // Keep prompt open on error so user can try again
                   }
                 }}
                 onCancel={() => {
-                  hideMergePrompt();
+                  appContext.hideMergePrompt();
                 }}
               />
             </Box>
@@ -91,35 +86,33 @@ function AppContent({ database }: AppContentProps) {
         }
 
         // If confirmation dialog is showing, render it instead of main content
-        if (state.confirmation) {
+        if (confirmation) {
           return (
-            <Box
-              flexDirection="column"
+            <Box 
+              flexDirection="column" 
               width={terminalDimensions.width}
               height={terminalDimensions.height}
             >
+              <KeyboardHandler />
               <ConfirmationDialog
-                message={state.confirmation.message}
-                onConfirm={state.confirmation.onConfirm}
-                onCancel={state.confirmation.onCancel}
+                message={confirmation.message}
+                onConfirm={confirmation.onConfirm}
+                onCancel={confirmation.onCancel}
               />
             </Box>
           );
         }
 
   return (
-    <Box
-      flexDirection="column"
-      width={terminalDimensions.width}
-      height={terminalDimensions.height}
-    >
+    <Box flexDirection="column">
+      <KeyboardHandler />
       <TopBar />
-      <CommandMode />
-      <MainView height={mainViewHeight} />
-      {state.logsVisible && <LogView height={logViewHeight} />}
+      <CommandMode isCommandMode={commandMode} />
+      <MainView height={layoutHeights.mainViewHeight} />
+      {logsVisible && <LogView height={layoutHeights.logViewHeight} />}
     </Box>
   );
-}
+});
 
 interface AppProps {
   database: DatabaseManager;
@@ -128,10 +121,12 @@ interface AppProps {
 
 export function App({ database, projectRoot }: AppProps) {
   return (
-    <SettingsProvider database={database}>
-      <AppProvider database={database} projectRoot={projectRoot}>
-        <AppContent database={database} />
-      </AppProvider>
-    </SettingsProvider>
+    <InputProvider>
+      <SettingsProvider database={database}>
+        <AppProvider database={database} projectRoot={projectRoot}>
+          <AppContent database={database} />
+        </AppProvider>
+      </SettingsProvider>
+    </InputProvider>
   );
 }

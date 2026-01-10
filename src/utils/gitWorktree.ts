@@ -126,13 +126,26 @@ export function createWorktree(baseBranch: string, branchPrefix: string, runId: 
  */
 export function removeWorktree(worktreePath: string): void {
   try {
-    execSync(`git worktree remove ${worktreePath}`, {
-      stdio: 'inherit',
+    logger.info(`Attempting to remove worktree: ${worktreePath}`, 'GitWorktree');
+    
+    // Git worktree remove expects the path relative to repo root (same format as when created)
+    // Don't convert to absolute - git handles relative paths correctly
+    // Use --force to remove even if there are uncommitted changes or if locked
+    execSync(`git worktree remove --force "${worktreePath}"`, {
+      stdio: 'pipe', // Suppress output for cleaner deletion
       cwd: process.cwd(),
+      encoding: 'utf-8',
     });
-    logger.info(`Removed worktree: ${worktreePath}`, 'GitWorktree');
+    logger.info(`Successfully removed worktree: ${worktreePath}`, 'GitWorktree');
   } catch (error: any) {
-    logger.error('Failed to remove worktree', 'GitWorktree', { error });
-    // Don't throw - worktree might already be removed
+    // Don't throw - worktree might already be removed or not exist
+    logger.error('Failed to remove worktree', 'GitWorktree', { 
+      worktreePath,
+      error: error.message || String(error),
+      code: (error as any).code,
+      stderr: (error as any).stderr?.toString(),
+      stdout: (error as any).stdout?.toString(),
+    });
+    throw error; // Re-throw so caller knows it failed
   }
 }

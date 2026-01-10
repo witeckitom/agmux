@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { Box, Text } from 'ink';
 import { useInput } from 'ink';
 import { useApp } from '../context/AppContext.js';
@@ -44,44 +44,42 @@ export function TaskDetailView() {
   }, [state.runs, state.selectedRunId]);
 
   const [messages, setMessages] = useState<Message[]>([]);
-  const [chatInput, setChatInput] = useState('');
+  const chatInputRef = useRef<string>('');
+  const [chatInputDisplay, setChatInputDisplay] = useState(0); // Counter to force re-render of input display
   const [editingChat, setEditingChat] = useState(false);
   const [changedFiles, setChangedFiles] = useState<ChangedFile[]>([]);
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
   const [fileDiff, setFileDiff] = useState<string>('');
+  const [tick, setTick] = useState(0); // Lightweight tick for running time updates
 
-  const [runningTime, setRunningTime] = useState<number>(0);
-
+  // Lightweight tick - only runs when there's a running task, updates every second
   useEffect(() => {
-    if (!selectedRun) {
-      setRunningTime(0);
+    if (!selectedRun || selectedRun.status !== 'running') {
       return;
     }
+    
+    const interval = setInterval(() => {
+      setTick(prev => prev + 1); // Just increment to trigger re-render
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [selectedRun?.status, selectedRun?.id]);
 
+  // Calculate running time reactively - uses tick to trigger updates for running tasks
+  const runningTime = useMemo(() => {
+    if (!selectedRun) return 0;
+    
     if (selectedRun.status === 'running') {
-      // Calculate running time from when task started
+      // Calculate from current time - tick ensures this updates every second
       const now = Date.now();
       const startTime = selectedRun.createdAt.getTime();
-      setRunningTime(now - startTime);
-
-      const interval = setInterval(() => {
-        const now = Date.now();
-        const startTime = selectedRun.createdAt.getTime();
-        setRunningTime(now - startTime);
-      }, 1000);
-
-      return () => clearInterval(interval);
+      return now - startTime;
     } else if (selectedRun.status === 'completed' || selectedRun.status === 'failed' || selectedRun.status === 'cancelled') {
       // Use stored duration from database
-      if (selectedRun.durationMs !== null && selectedRun.durationMs !== undefined && selectedRun.durationMs > 0) {
-        setRunningTime(selectedRun.durationMs);
-      } else {
-        setRunningTime(0);
-      }
-    } else {
-      setRunningTime(0);
+      return selectedRun.durationMs ?? 0;
     }
-  }, [selectedRun]);
+    return 0;
+  }, [selectedRun, tick]); // Include tick in dependencies
 
   useEffect(() => {
     // Load messages when selected run changes
@@ -149,62 +147,57 @@ export function TaskDetailView() {
     }
   }, [selectedRun, selectedFileIndex]);
 
+  // Refresh messages and changed files reactively when selected run changes
+  // This will be triggered by refreshRuns() calls after database operations
   useEffect(() => {
-    // Refresh runs and messages more frequently when viewing task detail (for streaming)
-    const interval = setInterval(() => {
-      refreshRuns();
-      if (selectedRun) {
-        const runMessages = database.getMessagesByRunId(selectedRun.id);
-        setMessages(runMessages);
+    if (selectedRun) {
+      const runMessages = database.getMessagesByRunId(selectedRun.id);
+      setMessages(runMessages);
 
-        // Refresh changed files (always try, even if worktreePath is empty)
-        if (selectedRun) {
-          try {
-            const files = getChangedFiles(selectedRun.worktreePath || '', selectedRun.id);
-            setChangedFiles(files);
-            if (files.length > 0 && selectedFileIndex < files.length) {
-              // Find the actual worktree path for getFileDiff
-              let worktreePathForDiff = selectedRun.worktreePath || '';
-              if (!worktreePathForDiff || worktreePathForDiff.startsWith('/tmp/') || worktreePathForDiff.trim() === '') {
-                const projectRoot = process.cwd();
-                const worktreesDir = join(projectRoot, '.worktrees');
-                if (existsSync(worktreesDir)) {
-                  try {
-                    const worktreeDirs = readdirSync(worktreesDir, { withFileTypes: true })
-                      .filter(dirent => dirent.isDirectory())
-                      .map(dirent => join(worktreesDir, dirent.name));
-                    
-                    const runIdPrefix = selectedRun.id.slice(0, 8);
-                    for (const dir of worktreeDirs) {
-                      const dirName = dir.split('/').pop() || '';
-                      if (dirName.includes(runIdPrefix)) {
-                        worktreePathForDiff = dir;
-                        break;
-                      }
-                    }
-                  } catch (error) {
-                    // Ignore errors
+      // Refresh changed files (always try, even if worktreePath is empty)
+      try {
+        const files = getChangedFiles(selectedRun.worktreePath || '', selectedRun.id);
+        setChangedFiles(files);
+        if (files.length > 0 && selectedFileIndex < files.length) {
+          // Find the actual worktree path for getFileDiff
+          let worktreePathForDiff = selectedRun.worktreePath || '';
+          if (!worktreePathForDiff || worktreePathForDiff.startsWith('/tmp/') || worktreePathForDiff.trim() === '') {
+            const projectRoot = process.cwd();
+            const worktreesDir = join(projectRoot, '.worktrees');
+            if (existsSync(worktreesDir)) {
+              try {
+                const worktreeDirs = readdirSync(worktreesDir, { withFileTypes: true })
+                  .filter(dirent => dirent.isDirectory())
+                  .map(dirent => join(worktreesDir, dirent.name));
+                
+                const runIdPrefix = selectedRun.id.slice(0, 8);
+                for (const dir of worktreeDirs) {
+                  const dirName = dir.split('/').pop() || '';
+                  if (dirName.includes(runIdPrefix)) {
+                    worktreePathForDiff = dir;
+                    break;
                   }
                 }
+              } catch (error) {
+                // Ignore errors
               }
-              
-              if (worktreePathForDiff && !worktreePathForDiff.startsWith('/tmp/') && worktreePathForDiff.trim() !== '') {
-                const diff = getFileDiff(worktreePathForDiff, files[selectedFileIndex].path, selectedRun.id);
-                setFileDiff(diff);
-              } else {
-                setFileDiff('');
-              }
-            } else {
-              setFileDiff('');
             }
-          } catch {
-            // Ignore errors
           }
+          
+          if (worktreePathForDiff && !worktreePathForDiff.startsWith('/tmp/') && worktreePathForDiff.trim() !== '') {
+            const diff = getFileDiff(worktreePathForDiff, files[selectedFileIndex].path, selectedRun.id);
+            setFileDiff(diff);
+          } else {
+            setFileDiff('');
+          }
+        } else {
+          setFileDiff('');
         }
+      } catch {
+        // Ignore errors
       }
-    }, 1500); // Refresh every 1.5 seconds
-    return () => clearInterval(interval);
-  }, [refreshRuns, selectedRun, database, selectedFileIndex]);
+    }
+  }, [selectedRun, database, selectedFileIndex]);
 
   // Handle input for chat and file navigation
   useInput((input, key) => {
@@ -236,26 +229,30 @@ export function TaskDetailView() {
       if (editingChat) {
         if (key.escape) {
           setEditingChat(false);
-          setChatInput('');
+          chatInputRef.current = '';
+          setChatInputDisplay(x => x + 1);
           return;
         }
 
-        if (key.return && chatInput.trim()) {
+        if (key.return && chatInputRef.current.trim()) {
           // Send message
-          const message = chatInput.trim();
-          setChatInput('');
+          const message = chatInputRef.current.trim();
+          chatInputRef.current = '';
           setEditingChat(false);
+          setChatInputDisplay(x => x + 1);
           sendMessageToTask(selectedRun.id, message);
           return;
         }
 
         if (key.backspace || key.delete) {
-          setChatInput(prev => prev.slice(0, -1));
+          chatInputRef.current = chatInputRef.current.slice(0, -1);
+          setChatInputDisplay(x => x + 1); // Force re-render of input display only
           return;
         }
 
         if (input && input.length === 1) {
-          setChatInput(prev => prev + input);
+          chatInputRef.current = chatInputRef.current + input;
+          setChatInputDisplay(x => x + 1); // Force re-render of input display only
           return;
         }
       }
@@ -362,7 +359,7 @@ export function TaskDetailView() {
                       <Box flexDirection="column">
                         <Box>
                           <Text>
-                            <Text color="cyan">{chatInput}</Text>
+                            <Text color="cyan">{chatInputRef.current}</Text>
                             <Text color="yellow">█</Text>
                           </Text>
                         </Box>

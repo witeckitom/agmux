@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useInput, useApp as useInkApp } from 'ink';
 import { useApp } from '../context/AppContext.js';
+import { useInputContext } from '../context/InputContext.js';
 import { logger } from '../utils/logger.js';
 import { groupTasksByStatus } from '../utils/taskGrouping.js';
 
@@ -37,7 +38,7 @@ export function useKeyboard() {
     state,
     setSelectedIndex,
     setCommandMode,
-    setCommandInput,
+    setCommandInput: setCommandInputState,
     executeCommand,
     refreshRuns,
     toggleLogs,
@@ -53,6 +54,7 @@ export function useKeyboard() {
     markTaskComplete,
     openWorktreeInVSCode,
   } = useApp();
+  const { setCommandInput, getCommandInput } = useInputContext();
 
 
   useInput((input, key) => {
@@ -73,23 +75,32 @@ export function useKeyboard() {
     // Command mode handling
     if (state.commandMode) {
       if (key.return) {
-        // Execute command
-        executeCommand(state.commandInput);
+        // Execute command - update state only when submitting
+        const currentInput = getCommandInput().trim();
+        setCommandInputState(currentInput);
+        executeCommand(currentInput);
+        setCommandInput(''); // Clear input ref
       } else if (key.escape) {
         // Cancel command mode
+        setCommandInput('');
         setCommandMode(false);
       } else if (key.tab) {
-        // Tab to autocomplete
-        const suggestion = getAutocompleteSuggestion(state.commandInput.trim());
-        if (suggestion) {
+        // Tab to autocomplete - only update if suggestion found
+        const currentInput = getCommandInput();
+        const suggestion = getAutocompleteSuggestion(currentInput.trim());
+        if (suggestion && suggestion !== currentInput) {
           setCommandInput(suggestion);
         }
       } else if (key.backspace || key.delete) {
-        // Delete character
-        setCommandInput(state.commandInput.slice(0, -1));
+        // Delete character - update ref only (no state update)
+        const currentInput = getCommandInput();
+        if (currentInput.length > 0) {
+          setCommandInput(currentInput.slice(0, -1));
+        }
       } else if (input) {
-        // Add character
-        setCommandInput(state.commandInput + input);
+        // Add character - update ref only (no state update)
+        const currentInput = getCommandInput();
+        setCommandInput(currentInput + input);
       }
       return;
     }

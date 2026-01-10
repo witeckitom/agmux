@@ -10,9 +10,28 @@ export class TaskExecutor {
   private database: DatabaseManager;
   private agents: Map<string, Agent> = new Map();
   private runningTasks: Map<string, Agent> = new Map();
+  private onUpdate?: () => void;
+  private updateTimeout: NodeJS.Timeout | null = null;
 
-  constructor(database: DatabaseManager) {
+  constructor(database: DatabaseManager, onUpdate?: () => void) {
     this.database = database;
+    this.onUpdate = onUpdate;
+  }
+
+  private notifyUpdate(): void {
+    if (this.onUpdate) {
+      // Debounce updates - batch rapid notifications (like streaming messages)
+      // Only call onUpdate after 200ms of no new notifications
+      if (this.updateTimeout) {
+        clearTimeout(this.updateTimeout);
+      }
+      this.updateTimeout = setTimeout(() => {
+        if (this.onUpdate) {
+          this.onUpdate();
+        }
+        this.updateTimeout = null;
+      }, 200); // 200ms debounce - feels instant but reduces re-renders
+    }
   }
 
   private getAgent(agentType: 'claude' | 'cursor'): Agent {
@@ -53,6 +72,7 @@ export class TaskExecutor {
         status: 'running',
         phase: 'worktree_creation',
       });
+      this.notifyUpdate();
 
       // Create git worktree
       const gitBranchPrefix = this.database.getPreference('gitBranchPrefix') || 'agent-orch';
@@ -63,6 +83,7 @@ export class TaskExecutor {
         worktreePath: worktreeInfo.path,
         phase: 'agent_execution',
       });
+      this.notifyUpdate();
 
       // Refresh the run object to get the updated worktree path
       const updatedRun = this.database.getRun(runId);
@@ -79,8 +100,9 @@ export class TaskExecutor {
       await agent.startTask(
         updatedRun,
         (content: string) => {
-          // On message - update UI will happen via refreshRuns
+          // On message - notify UI to refresh
           logger.debug(`Message received for task ${runId}`, 'TaskExecutor');
+          this.notifyUpdate();
         },
         (error: Error) => {
           // On error
@@ -91,6 +113,7 @@ export class TaskExecutor {
             completedAt: new Date(),
           });
           this.runningTasks.delete(runId);
+          this.notifyUpdate();
         },
         () => {
           // On complete - set to Needs Input (running with readyToAct=true)
@@ -101,6 +124,7 @@ export class TaskExecutor {
             readyToAct: true, // This puts it in "Needs Input" status
           });
           this.runningTasks.delete(runId);
+          this.notifyUpdate();
           // Don't cleanup worktree - user might want to continue or merge
         }
       );
@@ -112,6 +136,7 @@ export class TaskExecutor {
         completedAt: new Date(),
       });
       this.runningTasks.delete(runId);
+      this.notifyUpdate();
       throw error;
     }
   }
@@ -126,6 +151,7 @@ export class TaskExecutor {
         phase: 'finalization',
         completedAt: new Date(),
       });
+      this.notifyUpdate();
     }
   }
 

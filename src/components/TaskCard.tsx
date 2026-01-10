@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { Run } from '../models/types.js';
 
@@ -47,34 +47,34 @@ function formatDuration(ms: number, showSeconds: boolean = false): string {
 }
 
 export const TaskCard = React.memo(function TaskCard({ run, selected = false, width = 45 }: TaskCardProps) {
-  const [runningDuration, setRunningDuration] = useState<number>(0);
+  const [tick, setTick] = React.useState(0); // Lightweight tick for running time updates
 
-  useEffect(() => {
+  // Lightweight tick - only runs when task is running, updates every minute (since we only show minutes)
+  React.useEffect(() => {
+    if (run.status !== 'running') {
+      return;
+    }
+    
+    const interval = setInterval(() => {
+      setTick(prev => prev + 1); // Just increment to trigger re-render
+    }, 60000); // Update every minute since we only show minutes on kanban
+    
+    return () => clearInterval(interval);
+  }, [run.status, run.id]);
+
+  // Calculate running duration reactively - uses tick to trigger updates
+  const runningDuration = useMemo(() => {
     if (run.status === 'running') {
-      // Calculate initial duration from when task started
+      // Calculate from current time - tick ensures this updates periodically
       const now = Date.now();
       const startTime = run.createdAt.getTime();
-      setRunningDuration(now - startTime);
-
-      // Update every minute since we only show minutes on kanban
-      const interval = setInterval(() => {
-        const now = Date.now();
-        const startTime = run.createdAt.getTime();
-        setRunningDuration(now - startTime);
-      }, 60000); // 60 seconds = 1 minute
-
-      return () => clearInterval(interval);
+      return now - startTime;
     } else if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
       // Use stored duration from database
-      if (run.durationMs !== null && run.durationMs !== undefined && run.durationMs > 0) {
-        setRunningDuration(run.durationMs);
-      } else {
-        setRunningDuration(0);
-      }
-    } else {
-      setRunningDuration(0);
+      return run.durationMs ?? 0;
     }
-  }, [run.status, run.createdAt, run.durationMs]);
+    return 0;
+  }, [run.status, run.createdAt, run.durationMs, tick]); // Include tick in dependencies
 
   const progressBarWidth = Math.max(8, width - 6); // Account for padding, minimum 8 chars
   const progressBar = renderProgressBar(run.progressPercent, progressBarWidth);

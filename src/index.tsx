@@ -18,19 +18,15 @@ try {
   // Directory might already exist
 }
 
-// Clear screen and move cursor to top-left (like k9s)
-process.stdout.write('\x1b[2J\x1b[H');
-process.stdout.write('\x1b[?1049h'); // Enable alternate screen buffer
-
+// Let Ink handle screen management - don't manually clear/restore
+// Ink will handle alternate screen buffer and cursor management
 const database = new DatabaseManager(dbPath);
 
 const { waitUntilExit } = render(<App database={database} projectRoot={projectRoot} />);
 
-// Cleanup on exit
+// Cleanup on exit - only restore terminal, don't clear (Ink handles it)
 waitUntilExit().then(() => {
-  process.stdout.write('\x1b[?1049l'); // Disable alternate screen buffer
-  process.stdout.write('\x1b[2J\x1b[H'); // Clear screen
+  // Ink handles cleanup, just exit
 }).catch(() => {
-  process.stdout.write('\x1b[?1049l');
-  process.stdout.write('\x1b[2J\x1b[H');
+  // Ink handles cleanup, just exit
 });

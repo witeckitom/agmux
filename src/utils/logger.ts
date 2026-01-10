@@ -34,11 +34,11 @@ class Logger {
     // Notify listeners
     this.listeners.forEach(listener => listener());
 
-    // Also log to console in development
+    // Also log to stderr in development (never write to stdout while Ink is running!)
     if (process.env.NODE_ENV === 'development') {
       const prefix = `[${entry.timestamp.toISOString()}] [${level.toUpperCase()}]`;
       const contextStr = context ? `[${context}]` : '';
-      console.log(`${prefix} ${contextStr} ${message}`, metadata || '');
+      console.error(`${prefix} ${contextStr} ${message}`, metadata || '');
     }
   }
 

@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
-import { useApp } from '../context/AppContext.js';
+import { useInputContext } from '../context/InputContext.js';
 
 // Helper function to get autocomplete suggestion
 function getAutocompleteSuggestion(input: string): string | null {
@@ -28,15 +28,48 @@ function getAutocompleteSuggestion(input: string): string | null {
   return null;
 }
 
-export const CommandMode = React.memo(function CommandMode() {
-  const { state } = useApp();
+// Isolated component that only re-renders when its own input changes
+// Takes commandMode as prop to avoid subscribing to entire context
+export const CommandMode = React.memo(function CommandMode({ isCommandMode }: { isCommandMode: boolean }) {
+  const { getCommandInput, renderCommandInput } = useInputContext();
   const terminalWidth = useMemo(() => process.stdout.columns || 80, []);
+  const inputRef = useRef<string>('');
+  const [inputVersion, setInputVersion] = useState(0);
+  const commandModeRef = useRef(isCommandMode);
+  
+  // Update ref when commandMode changes
+  useEffect(() => {
+    commandModeRef.current = isCommandMode;
+    if (isCommandMode) {
+      inputRef.current = getCommandInput();
+      setInputVersion(v => v + 1);
+    } else {
+      inputRef.current = '';
+    }
+  }, [isCommandMode, getCommandInput]);
 
-  if (!state.commandMode) {
+  // Register callback to update input display - only update when value actually changes
+  useEffect(() => {
+    renderCommandInput(() => {
+      // Only update if command mode is active
+      if (!commandModeRef.current) return;
+      
+      const newInput = getCommandInput();
+      // Only trigger re-render if input actually changed
+      if (inputRef.current !== newInput) {
+        inputRef.current = newInput;
+        setInputVersion(v => v + 1);
+      }
+    });
+  }, [getCommandInput, renderCommandInput]);
+
+  if (!isCommandMode) {
     return null;
   }
 
-  const input = state.commandInput.trim();
+  // Read from ref to avoid React dependency tracking
+  const displayInput = inputRef.current;
+  const input = displayInput.trim();
   const suggestion = getAutocompleteSuggestion(input);
   
   // Calculate remaining characters for autocomplete preview
@@ -63,7 +96,7 @@ export const CommandMode = React.memo(function CommandMode() {
       <Box paddingX={1} flexGrow={1}>
         <Text>
           <Text color="yellow" bold>:</Text>
-          <Text>{input}</Text>
+          <Text>{displayInput}</Text>
           {remainingChars ? (
             <Text dimColor color="gray">
               {remainingChars}
@@ -79,4 +112,7 @@ export const CommandMode = React.memo(function CommandMode() {
       </Box>
     </Box>
   );
+}, (prevProps, nextProps) => {
+  // Only re-render if commandMode prop actually changed
+  return prevProps.isCommandMode === nextProps.isCommandMode;
 });

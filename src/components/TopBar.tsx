@@ -25,7 +25,11 @@ export const TopBar = React.memo(function TopBar() {
 
   const projectName = state.projectRoot.split('/').pop() || 'unknown';
   const contextDisplay = state.currentView;
-  const runningCount = state.runs.filter(r => r.status === 'running').length;
+  // Memoize running count calculation to prevent new array creation on every render
+  const runningCount = useMemo(() => 
+    state.runs.filter(r => r.status === 'running').length,
+    [state.runs]
+  );
   const viewCommands = useMemo(() => getViewCommands(state.currentView), [state.currentView]);
 
   return (

@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, ReactNode, useMemo } from 'react';
 import { ViewType, Run } from '../models/types.js';
 import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
 import { TaskExecutor } from '../services/TaskExecutor.js';
 import { mergeToBranch, getPRUrl } from '../utils/gitUtils.js';
+import { removeWorktree } from '../utils/gitWorktree.js';
 import { execSync } from 'child_process';
 import { resolve, join } from 'path';
 import { existsSync, readdirSync } from 'fs';
@@ -63,22 +64,8 @@ interface AppProviderProps {
 }
 
 export function AppProvider({ children, database, projectRoot }: AppProviderProps) {
-  const taskExecutor = useRef<TaskExecutor>(new TaskExecutor(database)).current;
-
-  const [state, setState] = useState<AppState>({
-    currentView: 'tasks',
-    selectedIndex: 0,
-    runs: [],
-    commandMode: false,
-    commandInput: '',
-    logsVisible: false,
-    projectRoot,
-    currentBranch: undefined,
-    confirmation: null,
-    selectedRunId: null,
-    mergePrompt: null,
-  });
-
+  const refreshRunsRef = useRef<(() => void) | null>(null);
+  
   const refreshRuns = useCallback(() => {
     const runs = database.getAllRuns();
     logger.debug(`Refreshing runs: found ${runs.length} runs`, 'App');
@@ -113,6 +100,32 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     });
   }, [database]);
 
+  // Store refreshRuns in ref so TaskExecutor can access it
+  refreshRunsRef.current = refreshRuns;
+
+  const taskExecutor = useRef<TaskExecutor>(
+    new TaskExecutor(database, () => {
+      // Call refreshRuns when TaskExecutor notifies of updates
+      if (refreshRunsRef.current) {
+        refreshRunsRef.current();
+      }
+    })
+  ).current;
+
+  const [state, setState] = useState<AppState>({
+    currentView: 'tasks',
+    selectedIndex: 0,
+    runs: [],
+    commandMode: false,
+    commandInput: '',
+    logsVisible: false,
+    projectRoot,
+    currentBranch: undefined,
+    confirmation: null,
+    selectedRunId: null,
+    mergePrompt: null,
+  });
+
   const setCurrentView = useCallback((view: ViewType) => {
     setState(prev => {
       if (prev.currentView !== view) {
@@ -132,8 +145,8 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
   const setCommandMode = useCallback((enabled: boolean) => {
     setState(prev => ({ 
       ...prev, 
-      commandMode: enabled, 
-      commandInput: enabled ? '' : '',
+      commandMode: enabled,
+      // Don't clear commandInput here - let InputContext handle it
     }));
   }, []);
 
@@ -245,6 +258,83 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
       showConfirmation(
         `Delete task "${prompt.substring(0, 40)}${prompt.length > 40 ? '...' : ''}"?`,
         () => {
+          // Delete the worktree if it exists and task is not set to retain it
+          if (run.worktreePath && run.worktreePath.trim() !== '' && !run.retainWorktree) {
+            try {
+              logger.info(`Attempting to remove worktree for deleted task: ${runId}`, 'App', { 
+                worktreePath: run.worktreePath,
+                retainWorktree: run.retainWorktree 
+              });
+              
+              // Git worktree remove needs the path relative to repo root (e.g., .worktrees/branch-name)
+              // The database stores absolute paths, but git expects relative paths
+              let worktreePathForRemoval: string;
+              
+              if (run.worktreePath.startsWith('/')) {
+                // Absolute path - convert to relative by removing projectRoot prefix
+                const normalizedProjectRoot = projectRoot.replace(/\/$/, ''); // Remove trailing slash
+                const normalizedWorktreePath = run.worktreePath.replace(/\/$/, ''); // Remove trailing slash
+                
+                if (normalizedWorktreePath.startsWith(normalizedProjectRoot + '/')) {
+                  worktreePathForRemoval = normalizedWorktreePath.substring(normalizedProjectRoot.length + 1);
+                  logger.debug(`Converted absolute to relative path`, 'App', {
+                    absolute: run.worktreePath,
+                    relative: worktreePathForRemoval
+                  });
+                } else {
+                  // Path doesn't start with projectRoot - try to extract .worktrees part
+                  const worktreesMatch = normalizedWorktreePath.match(/\.worktrees\/[^/]+/);
+                  if (worktreesMatch) {
+                    worktreePathForRemoval = worktreesMatch[0];
+                    logger.debug(`Extracted worktree path from absolute`, 'App', {
+                      absolute: run.worktreePath,
+                      extracted: worktreePathForRemoval
+                    });
+                  } else {
+                    // Fallback: use absolute path (git might accept it)
+                    worktreePathForRemoval = run.worktreePath;
+                    logger.debug(`Using absolute path as fallback`, 'App', {
+                      path: worktreePathForRemoval
+                    });
+                  }
+                }
+              } else {
+                // Already relative
+                worktreePathForRemoval = run.worktreePath;
+                logger.debug(`Using relative path as-is`, 'App', {
+                  path: worktreePathForRemoval
+                });
+              }
+              
+              // Check if worktree directory exists before trying to remove
+              const absolutePath = resolve(projectRoot, worktreePathForRemoval);
+              if (existsSync(absolutePath)) {
+                logger.info(`Removing worktree: ${worktreePathForRemoval}`, 'App');
+                removeWorktree(worktreePathForRemoval);
+                logger.info(`Successfully removed worktree for deleted task: ${runId}`, 'App', { 
+                  worktreePath: worktreePathForRemoval,
+                  absolutePath 
+                });
+              } else {
+                logger.debug(`Worktree path does not exist, skipping removal: ${absolutePath}`, 'App');
+              }
+            } catch (error: any) {
+              // Log but don't fail deletion if worktree removal fails
+              // The task will still be deleted even if worktree removal fails
+              logger.error(`Failed to remove worktree for deleted task ${runId}`, 'App', { 
+                error: error.message || String(error),
+                worktreePath: run.worktreePath,
+                stack: error.stack
+              });
+            }
+          } else {
+            logger.debug(`Skipping worktree removal for task ${runId}`, 'App', {
+              hasWorktreePath: !!run.worktreePath,
+              worktreePath: run.worktreePath,
+              retainWorktree: run.retainWorktree
+            });
+          }
+          
           const deleted = database.deleteRun(runId);
           if (deleted) {
             logger.info(`Deleted run: ${runId}`, 'App');
@@ -494,34 +584,59 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     [state.runs]
   );
 
+  // Memoize context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
+    state,
+    database,
+    taskExecutor,
+    setCurrentView,
+    setSelectedIndex,
+    refreshRuns,
+    setCommandMode,
+    setCommandInput,
+    setLogsVisible,
+    toggleLogs,
+    executeCommand,
+    showConfirmation,
+    hideConfirmation,
+    deleteRun,
+    setSelectedRunId,
+    toggleTaskStatus,
+    sendMessageToTask,
+    showMergePrompt,
+    hideMergePrompt,
+    mergeTaskBranch,
+    openPRForTask,
+    markTaskComplete,
+    openWorktreeInVSCode,
+  }), [
+    state,
+    database,
+    taskExecutor,
+    setCurrentView,
+    setSelectedIndex,
+    refreshRuns,
+    setCommandMode,
+    setCommandInput,
+    setLogsVisible,
+    toggleLogs,
+    executeCommand,
+    showConfirmation,
+    hideConfirmation,
+    deleteRun,
+    setSelectedRunId,
+    toggleTaskStatus,
+    sendMessageToTask,
+    showMergePrompt,
+    hideMergePrompt,
+    mergeTaskBranch,
+    openPRForTask,
+    markTaskComplete,
+    openWorktreeInVSCode,
+  ]);
+
   return (
-    <AppContext.Provider
-      value={{
-        state,
-        database,
-        taskExecutor,
-        setCurrentView,
-        setSelectedIndex,
-        refreshRuns,
-        setCommandMode,
-        setCommandInput,
-        setLogsVisible,
-        toggleLogs,
-        executeCommand,
-        showConfirmation,
-        hideConfirmation,
-        deleteRun,
-        setSelectedRunId,
-        toggleTaskStatus,
-        sendMessageToTask,
-        showMergePrompt,
-        hideMergePrompt,
-        mergeTaskBranch,
-        openPRForTask,
-        markTaskComplete,
-        openWorktreeInVSCode,
-      }}
-    >
+    <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   );
