@@ -42,4 +42,4 @@ export interface Preference {
   value: string;
 }
 
-export type ViewType = 'tasks' | 'skills' | 'commands' | 'hooks' | 'profiles' | 'agents';
+export type ViewType = 'tasks' | 'skills' | 'commands' | 'hooks' | 'profiles' | 'agents' | 'new-task';

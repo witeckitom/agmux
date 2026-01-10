@@ -9,6 +9,7 @@ function getAutocompleteSuggestion(input: string): string | null {
     return null;
   }
 
+  // Only navigation commands in command mode
   const commands = [
     { name: 'tasks', aliases: ['task'] },
     { name: 'skills', aliases: ['skill'] },
@@ -16,7 +17,6 @@ function getAutocompleteSuggestion(input: string): string | null {
     { name: 'hooks', aliases: ['hook'] },
     { name: 'profiles', aliases: ['profile'] },
     { name: 'agents', aliases: ['agent'] },
-    { name: 'refresh', aliases: ['r'] },
     { name: 'quit', aliases: ['q'] },
   ];
 

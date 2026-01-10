@@ -1,73 +1,87 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useApp } from '../context/AppContext.js';
+import { groupTasksByStatus, DisplayStatus } from '../utils/taskGrouping.js';
+import { TaskColumn } from './TaskColumn.js';
 import { Run } from '../models/types.js';
-
-function formatStatus(status: Run['status']): string {
-  const statusMap: Record<Run['status'], string> = {
-    queued: '⏳',
-    running: '▶',
-    completed: '✓',
-    failed: '✗',
-    cancelled: '⊘',
-  };
-  return statusMap[status] || status;
-}
-
-function formatPhase(phase: Run['phase']): string {
-  const phaseMap: Record<Run['phase'], string> = {
-    worktree_creation: 'Creating worktree',
-    setup_hooks: 'Setup hooks',
-    agent_execution: 'Agent running',
-    cleanup_hooks: 'Cleanup',
-    finalization: 'Finalizing',
-  };
-  return phaseMap[phase] || phase;
-}
 
 export const TaskList = React.memo(function TaskList() {
   const { state } = useApp();
   const { runs, selectedIndex } = state;
+  const terminalWidth = useMemo(() => process.stdout.columns || 80, []);
+
+  // Get selected run ID
+  const selectedRunId = useMemo(() => {
+    if (runs.length === 0 || selectedIndex < 0 || selectedIndex >= runs.length) {
+      return undefined;
+    }
+    return runs[selectedIndex].id;
+  }, [runs, selectedIndex]);
+
+  // Group tasks by status
+  const taskGroups = useMemo(() => groupTasksByStatus(runs), [runs]);
+
+  // Calculate column width (4 columns)
+  const columnWidth = useMemo(() => {
+    return Math.floor(terminalWidth / 4);
+  }, [terminalWidth]);
+
+  // Create a map of status to runs for easy lookup
+  const statusMap = useMemo(() => {
+    const map: Record<DisplayStatus, Run[]> = {
+      Queued: [],
+      'In Progress': [],
+      'In Review': [],
+      Done: [],
+    };
+    taskGroups.forEach(group => {
+      map[group.status] = group.runs;
+    });
+    return map;
+  }, [taskGroups]);
 
   if (runs.length === 0) {
     return (
       <Box padding={2} flexDirection="column">
         <Text dimColor>No runs yet.</Text>
-        <Text dimColor>Press ':' to open command mode and start a new run.</Text>
-        <Text dimColor>Use j/k or arrow keys to navigate when runs are available.</Text>
+        <Text dimColor>Press 'T' to create a new task.</Text>
+        <Text dimColor>Use j/k or arrow keys to navigate when tasks are available.</Text>
       </Box>
     );
   }
 
   return (
-    <Box flexDirection="column" flexGrow={1}>
-      <Box paddingX={1} paddingY={1} borderStyle="single" borderBottom={true}>
-        <Text bold>
-          Tasks ({runs.length}) - Use j/k or ↑/↓ to navigate, Enter to view details
-        </Text>
-      </Box>
-      <Box flexDirection="column" flexGrow={1}>
-        {runs.map((run, index) => (
-        <Box
-          key={run.id}
-          paddingX={1}
-          paddingY={0}
-        >
-            <Text
-              inverse={index === selectedIndex}
-              color={index === selectedIndex ? 'white' : undefined}
-            >
-              {formatStatus(run.status)} [{run.status}] {run.id.slice(0, 8)} -{' '}
-              {run.prompt || 'No prompt'}
-            </Text>
-            <Text dimColor={index !== selectedIndex}>
-              {'   '}
-              {formatPhase(run.phase)} | {run.progressPercent}% ({run.completedSubtasks}/
-              {run.totalSubtasks} tasks)
-              {run.readyToAct && ' | ⚠ Ready for input'}
-            </Text>
-          </Box>
-        ))}
+    <Box flexDirection="column" flexGrow={1} width={terminalWidth}>
+      <Box flexDirection="row" flexGrow={1} width={terminalWidth} height="100%">
+        <TaskColumn
+          status="Queued"
+          runs={statusMap.Queued}
+          selectedRunId={selectedRunId}
+          cardWidth={Math.max(30, columnWidth - 4)}
+          columnWidth={columnWidth}
+          isFirst={true}
+        />
+        <TaskColumn
+          status="In Progress"
+          runs={statusMap['In Progress']}
+          selectedRunId={selectedRunId}
+          cardWidth={Math.max(30, columnWidth - 4)}
+          columnWidth={columnWidth}
+        />
+        <TaskColumn
+          status="In Review"
+          runs={statusMap['In Review']}
+          selectedRunId={selectedRunId}
+          cardWidth={Math.max(30, columnWidth - 4)}
+          columnWidth={columnWidth}
+        />
+        <TaskColumn
+          status="Done"
+          runs={statusMap.Done}
+          selectedRunId={selectedRunId}
+          cardWidth={Math.max(30, columnWidth - 4)}
+          columnWidth={columnWidth}
+        />
       </Box>
     </Box>
   );

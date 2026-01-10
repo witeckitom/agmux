@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useApp } from '../context/AppContext.js';
 import { execSync } from 'child_process';
+import { getViewCommands } from '../utils/viewCommands.js';
 
 export const TopBar = React.memo(function TopBar() {
   const { state } = useApp();
@@ -25,26 +26,44 @@ export const TopBar = React.memo(function TopBar() {
   const projectName = state.projectRoot.split('/').pop() || 'unknown';
   const contextDisplay = state.currentView;
   const runningCount = state.runs.filter(r => r.status === 'running').length;
+  const viewCommands = useMemo(() => getViewCommands(state.currentView), [state.currentView]);
 
   return (
     <Box 
       width={terminalWidth}
       borderStyle="single" 
       borderBottom={true} 
-      height={3}
+      height={viewCommands.length > 0 && !state.commandMode ? 4 : 3}
+      flexDirection="column"
     >
-      <Box paddingX={1} flexGrow={1}>
-        <Text>
-          <Text bold color="cyan">Project:</Text> {projectName} |{' '}
-          <Text bold color="cyan">Branch:</Text> {gitBranch} |{' '}
-          <Text bold color="cyan">View:</Text> {contextDisplay}
-        </Text>
+      <Box flexDirection="row">
+        <Box paddingX={1} flexGrow={1}>
+          <Text>
+            <Text bold color="cyan">Project:</Text> {projectName} |{' '}
+            <Text bold color="cyan">Branch:</Text> {gitBranch} |{' '}
+            <Text bold color="cyan">View:</Text> {contextDisplay}
+          </Text>
+        </Box>
+        <Box paddingX={1}>
+          <Text dimColor>
+            {runningCount} running | <Text bold>:</Text> nav | <Text bold>LL</Text> logs
+          </Text>
+        </Box>
       </Box>
-      <Box paddingX={1}>
-        <Text dimColor>
-          {runningCount} running | <Text bold>:</Text> commands
-        </Text>
-      </Box>
+      {viewCommands.length > 0 && !state.commandMode && (
+        <Box paddingX={1} paddingY={0}>
+          <Text dimColor>
+            {viewCommands.map((cmd, index) => (
+              <Text key={cmd.key}>
+                {index > 0 && ' | '}
+                <Text bold color="yellow">{cmd.key}</Text>
+                {' - '}
+                {cmd.description}
+              </Text>
+            ))}
+          </Text>
+        </Box>
+      )}
     </Box>
   );
 });

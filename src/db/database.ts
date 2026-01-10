@@ -143,6 +143,11 @@ export class DatabaseManager {
     return this.getRun(id);
   }
 
+  deleteRun(id: string): boolean {
+    const result = this.db.prepare('DELETE FROM runs WHERE id = ?').run(id);
+    return result.changes > 0;
+  }
+
   private mapRowToRun(row: any): Run {
     return {
       id: row.id,

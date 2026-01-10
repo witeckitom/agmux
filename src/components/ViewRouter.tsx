@@ -6,6 +6,7 @@ import { CommandsView } from '../views/CommandsView.js';
 import { HooksView } from '../views/HooksView.js';
 import { ProfilesView } from '../views/ProfilesView.js';
 import { AgentsView } from '../views/AgentsView.js';
+import { NewTaskView } from '../views/NewTaskView.js';
 
 export function ViewRouter() {
   const { state } = useApp();
@@ -13,6 +14,8 @@ export function ViewRouter() {
   switch (state.currentView) {
     case 'tasks':
       return <TasksView />;
+    case 'new-task':
+      return <NewTaskView />;
     case 'skills':
       return <SkillsView />;
     case 'commands':
