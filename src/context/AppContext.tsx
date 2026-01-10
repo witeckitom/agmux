@@ -235,9 +235,15 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
         database.updateRun(runId, { status: 'running', phase: 'worktree_creation' });
         refreshRuns();
       } else if (run.status === 'running') {
-        // Stop the task
+        // Stop the task - calculate and save duration
         logger.info(`Stopping task: ${runId}`, 'App');
-        database.updateRun(runId, { status: 'cancelled' });
+        const now = new Date();
+        const durationMs = now.getTime() - run.createdAt.getTime();
+        database.updateRun(runId, { 
+          status: 'cancelled',
+          completedAt: now,
+          durationMs: durationMs
+        });
         refreshRuns();
       }
     },

@@ -21,6 +21,7 @@ export function createMockRun(overrides: Partial<Run> = {}): Run {
     createdAt: new Date(),
     updatedAt: new Date(),
     completedAt: null,
+    durationMs: null,
     retainWorktree: false,
     ...overrides,
   };

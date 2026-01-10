@@ -295,6 +295,18 @@ export function useKeyboard() {
         deleteRun(selectedRun.id);
         return;
       }
+
+      // Shift+S for start/stop task
+      if (key.shift && (input === 's' || input === 'S')) {
+        if (state.runs.length === 0 || state.selectedIndex < 0 || state.selectedIndex >= state.runs.length) {
+          logger.warn('No task selected to start/stop', 'Keyboard');
+          return;
+        }
+        const selectedRun = state.runs[state.selectedIndex];
+        logger.info(`Start/Stop requested for task: ${selectedRun.id}`, 'Keyboard');
+        toggleTaskStatus(selectedRun.id);
+        return;
+      }
     }
 
     // Task detail view hotkeys

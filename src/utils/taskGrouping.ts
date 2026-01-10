@@ -1,6 +1,6 @@
 import { Run, RunStatus } from '../models/types.js';
 
-export type DisplayStatus = 'Queued' | 'In Progress' | 'In Review' | 'Done';
+export type DisplayStatus = 'Queued' | 'In Progress' | 'Needs Input' | 'Done';
 
 export interface TaskGroup {
   status: DisplayStatus;
@@ -11,7 +11,7 @@ export function groupTasksByStatus(runs: Run[]): TaskGroup[] {
   const groups: Record<DisplayStatus, Run[]> = {
     Queued: [],
     'In Progress': [],
-    'In Review': [],
+    'Needs Input': [],
     Done: [],
   };
 
@@ -28,8 +28,8 @@ export function groupTasksByStatus(runs: Run[]): TaskGroup[] {
   if (groups['In Progress'].length > 0) {
     result.push({ status: 'In Progress' as DisplayStatus, runs: groups['In Progress'] });
   }
-  if (groups['In Review'].length > 0) {
-    result.push({ status: 'In Review' as DisplayStatus, runs: groups['In Review'] });
+  if (groups['Needs Input'].length > 0) {
+    result.push({ status: 'Needs Input' as DisplayStatus, runs: groups['Needs Input'] });
   }
   if (groups.Done.length > 0) {
     result.push({ status: 'Done' as DisplayStatus, runs: groups.Done });
@@ -39,7 +39,7 @@ export function groupTasksByStatus(runs: Run[]): TaskGroup[] {
 
 function mapRunStatusToDisplayStatus(status: RunStatus, readyToAct: boolean): DisplayStatus {
   if (readyToAct && status === 'running') {
-    return 'In Review';
+    return 'Needs Input';
   }
   
   switch (status) {

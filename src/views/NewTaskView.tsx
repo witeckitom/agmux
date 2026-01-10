@@ -57,6 +57,7 @@ export function NewTaskView() {
         completedSubtasks: 0,
         readyToAct: false,
         completedAt: null,
+        durationMs: null,
         retainWorktree: false,
       });
 

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS runs (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     completed_at DATETIME,
+    duration_ms INTEGER,
     retain_worktree INTEGER DEFAULT 0
 );
 

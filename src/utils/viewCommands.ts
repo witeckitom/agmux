@@ -10,6 +10,7 @@ export function getViewCommands(view: ViewType): ViewCommand[] {
     case 'tasks':
       return [
         { key: 'T', description: 'Create a new task' },
+        { key: 'Shift+S', description: 'Start/Stop selected task' },
         { key: 'Shift+D', description: 'Delete selected task' },
         { key: 'r', description: 'Refresh tasks' },
       ];

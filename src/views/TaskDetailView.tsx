@@ -3,18 +3,22 @@ import { Box, Text } from 'ink';
 import { useApp } from '../context/AppContext.js';
 import { logger } from '../utils/logger.js';
 
-function formatDuration(ms: number): string {
+function formatDuration(ms: number, showSeconds: boolean = true): string {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
   
   if (hours > 0) {
-    return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+    return showSeconds 
+      ? `${hours}h ${minutes % 60}m ${seconds % 60}s`
+      : `${hours}h ${minutes % 60}m`;
   }
   if (minutes > 0) {
-    return `${minutes}m ${seconds % 60}s`;
+    return showSeconds
+      ? `${minutes}m ${seconds % 60}s`
+      : `${minutes}m`;
   }
-  return `${seconds}s`;
+  return showSeconds ? `${seconds}s` : '< 1 min';
 }
 
 function renderProgressBar(percent: number, width: number): string {
@@ -37,23 +41,34 @@ export function TaskDetailView() {
   const [runningTime, setRunningTime] = useState<number>(0);
 
   useEffect(() => {
-    if (!selectedRun || selectedRun.status !== 'running') {
+    if (!selectedRun) {
       setRunningTime(0);
       return;
     }
 
-    // Calculate initial running time
-    const now = Date.now();
-    const startTime = selectedRun.updatedAt.getTime();
-    setRunningTime(now - startTime);
-
-    const interval = setInterval(() => {
+    if (selectedRun.status === 'running') {
+      // Calculate running time from when task started
       const now = Date.now();
-      const startTime = selectedRun.updatedAt.getTime();
+      const startTime = selectedRun.createdAt.getTime();
       setRunningTime(now - startTime);
-    }, 1000);
 
-    return () => clearInterval(interval);
+      const interval = setInterval(() => {
+        const now = Date.now();
+        const startTime = selectedRun.createdAt.getTime();
+        setRunningTime(now - startTime);
+      }, 1000);
+
+      return () => clearInterval(interval);
+    } else if (selectedRun.status === 'completed' || selectedRun.status === 'failed' || selectedRun.status === 'cancelled') {
+      // Use stored duration from database
+      if (selectedRun.durationMs !== null && selectedRun.durationMs !== undefined && selectedRun.durationMs > 0) {
+        setRunningTime(selectedRun.durationMs);
+      } else {
+        setRunningTime(0);
+      }
+    } else {
+      setRunningTime(0);
+    }
   }, [selectedRun]);
 
   useEffect(() => {
@@ -98,11 +113,18 @@ export function TaskDetailView() {
               <Text dimColor> | </Text>
               <Text bold color={statusColor}>Status:</Text>
               <Text color={statusColor}> {selectedRun.status}</Text>
-              {selectedRun.status === 'running' && (
+              {selectedRun.status === 'running' && runningTime > 0 && (
                 <>
                   <Text dimColor> | </Text>
                   <Text bold>Running:</Text>
-                  <Text> {formatDuration(runningTime)}</Text>
+                  <Text> {formatDuration(runningTime, true)}</Text>
+                </>
+              )}
+              {(selectedRun.status === 'completed' || selectedRun.status === 'failed' || selectedRun.status === 'cancelled') && runningTime > 0 && (
+                <>
+                  <Text dimColor> | </Text>
+                  <Text bold>Duration:</Text>
+                  <Text> {formatDuration(runningTime, true)}</Text>
                 </>
               )}
             </Box>

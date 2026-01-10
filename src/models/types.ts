@@ -24,6 +24,7 @@ export interface Run {
   createdAt: Date;
   updatedAt: Date;
   completedAt: Date | null;
+  durationMs: number | null; // Duration in milliseconds (null if not completed)
   retainWorktree: boolean; // Don't auto-cleanup
 }
 

@@ -16,6 +16,18 @@ export class DatabaseManager {
     const schemaPath = join(process.cwd(), 'src', 'db', 'schema.sql');
     const schema = readFileSync(schemaPath, 'utf-8');
     this.db.exec(schema);
+    
+    // Migrate existing databases: add duration_ms column if it doesn't exist
+    try {
+      this.db.exec(`
+        ALTER TABLE runs ADD COLUMN duration_ms INTEGER;
+      `);
+    } catch (error: any) {
+      // Column already exists or other error - ignore
+      if (!error.message?.includes('duplicate column')) {
+        // Log other errors but don't fail
+      }
+    }
   }
 
   // Run operations
@@ -28,8 +40,8 @@ export class DatabaseManager {
         `INSERT INTO runs (
           id, status, phase, worktree_path, base_branch, agent_profile_id,
           conversation_id, skill_id, prompt, progress_percent, total_subtasks,
-          completed_subtasks, ready_to_act, created_at, updated_at, completed_at, retain_worktree
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          completed_subtasks, ready_to_act, created_at, updated_at, completed_at, duration_ms, retain_worktree
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -48,6 +60,7 @@ export class DatabaseManager {
         now.toISOString(),
         now.toISOString(),
         run.completedAt?.toISOString() || null,
+        run.durationMs ?? null,
         run.retainWorktree ? 1 : 0
       );
 
@@ -75,6 +88,7 @@ export class DatabaseManager {
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
       completedAt: row.completed_at ? new Date(row.completed_at) : null,
+      durationMs: row.duration_ms !== null && row.duration_ms !== undefined ? row.duration_ms : null,
       retainWorktree: row.retain_worktree === 1,
     };
   }
@@ -94,6 +108,13 @@ export class DatabaseManager {
   updateRun(id: string, updates: Partial<Run>): Run | null {
     const setParts: string[] = [];
     const values: any[] = [];
+    
+    // Get the current run to check if we need to calculate duration
+    const currentRun = this.getRun(id);
+    const isCompleting = updates.status !== undefined && 
+                         (updates.status === 'completed' || updates.status === 'failed' || updates.status === 'cancelled') &&
+                         currentRun && 
+                         currentRun.status === 'running';
 
     if (updates.status !== undefined) {
       setParts.push('status = ?');
@@ -119,10 +140,27 @@ export class DatabaseManager {
       setParts.push('ready_to_act = ?');
       values.push(updates.readyToAct ? 1 : 0);
     }
+    
+    // Handle completedAt - if not provided but task is completing, set it to now
     if (updates.completedAt !== undefined) {
       setParts.push('completed_at = ?');
       values.push(updates.completedAt?.toISOString() || null);
+    } else if (isCompleting) {
+      setParts.push('completed_at = ?');
+      values.push(new Date().toISOString());
     }
+    
+    // Calculate and save duration if task is completing and duration not explicitly provided
+    if (updates.durationMs !== undefined) {
+      setParts.push('duration_ms = ?');
+      values.push(updates.durationMs);
+    } else if (isCompleting && currentRun) {
+      const now = new Date();
+      const durationMs = now.getTime() - currentRun.createdAt.getTime();
+      setParts.push('duration_ms = ?');
+      values.push(durationMs);
+    }
+    
     if (updates.conversationId !== undefined) {
       setParts.push('conversation_id = ?');
       values.push(updates.conversationId);
@@ -166,6 +204,7 @@ export class DatabaseManager {
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
       completedAt: row.completed_at ? new Date(row.completed_at) : null,
+      durationMs: row.duration_ms !== null && row.duration_ms !== undefined ? row.duration_ms : null,
       retainWorktree: row.retain_worktree === 1,
     };
   }
