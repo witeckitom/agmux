@@ -30,9 +30,10 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
+    "better-sqlite3": "^11.3.0",
     "ink": "^4.4.1",
-    "react": "^18.2.0",
-    "better-sqlite3": "^11.3.0"
+    "react": "^18.2.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",

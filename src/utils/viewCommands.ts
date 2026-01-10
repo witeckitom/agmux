@@ -12,6 +12,9 @@ export function getViewCommands(view: ViewType): ViewCommand[] {
         { key: 'T', description: 'Create a new task' },
         { key: 'Shift+S', description: 'Start/Stop selected task' },
         { key: 'Shift+D', description: 'Delete selected task' },
+        { key: 'M', description: 'Merge task branch' },
+        { key: 'P', description: 'Open PR for task' },
+        { key: 'D', description: 'Mark task complete (Needs Input)' },
         { key: 'r', description: 'Refresh tasks' },
       ];
     case 'skills':

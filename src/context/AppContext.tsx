@@ -1,7 +1,10 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
 import { ViewType, Run } from '../models/types.js';
 import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
+import { TaskExecutor } from '../services/TaskExecutor.js';
+import { mergeToBranch, getPRUrl } from '../utils/gitUtils.js';
+import { execSync } from 'child_process';
 
 interface ConfirmationState {
   message: string;
@@ -20,11 +23,13 @@ interface AppState {
   currentBranch?: string;
   confirmation: ConfirmationState | null;
   selectedRunId: string | null;
+  mergePrompt: { runId: string; defaultBranch: string } | null;
 }
 
 interface AppContextValue {
   state: AppState;
   database: DatabaseManager;
+  taskExecutor: TaskExecutor;
   setCurrentView: (view: ViewType) => void;
   setSelectedIndex: (index: number) => void;
   refreshRuns: () => void;
@@ -38,6 +43,12 @@ interface AppContextValue {
   deleteRun: (runId: string) => void;
   setSelectedRunId: (runId: string | null) => void;
   toggleTaskStatus: (runId: string) => void;
+  sendMessageToTask: (runId: string, message: string) => Promise<void>;
+  showMergePrompt: (runId: string, defaultBranch: string) => void;
+  hideMergePrompt: () => void;
+  mergeTaskBranch: (runId: string, targetBranch: string) => Promise<void>;
+  openPRForTask: (runId: string) => Promise<void>;
+  markTaskComplete: (runId: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -49,6 +60,8 @@ interface AppProviderProps {
 }
 
 export function AppProvider({ children, database, projectRoot }: AppProviderProps) {
+  const taskExecutor = useRef<TaskExecutor>(new TaskExecutor(database)).current;
+
   const [state, setState] = useState<AppState>({
     currentView: 'tasks',
     selectedIndex: 0,
@@ -60,6 +73,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     currentBranch: undefined,
     confirmation: null,
     selectedRunId: null,
+    mergePrompt: null,
   });
 
   const refreshRuns = useCallback(() => {
@@ -222,7 +236,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
   }, []);
 
   const toggleTaskStatus = useCallback(
-    (runId: string) => {
+    async (runId: string) => {
       const run = state.runs.find(r => r.id === runId);
       if (!run) {
         logger.warn(`Attempted to toggle status for non-existent run: ${runId}`, 'App');
@@ -232,30 +246,172 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
       if (run.status === 'queued' || run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
         // Start the task
         logger.info(`Starting task: ${runId}`, 'App');
-        database.updateRun(runId, { status: 'running', phase: 'worktree_creation' });
-        refreshRuns();
+        try {
+          await taskExecutor.startTask(runId);
+          refreshRuns();
+        } catch (error: any) {
+          logger.error(`Failed to start task ${runId}`, 'App', { error });
+          refreshRuns();
+        }
       } else if (run.status === 'running') {
         // Stop the task - calculate and save duration
         logger.info(`Stopping task: ${runId}`, 'App');
-        const now = new Date();
-        const durationMs = now.getTime() - run.createdAt.getTime();
-        database.updateRun(runId, { 
-          status: 'cancelled',
-          completedAt: now,
-          durationMs: durationMs
-        });
-        refreshRuns();
+        try {
+          await taskExecutor.stopTask(runId);
+          const now = new Date();
+          const durationMs = now.getTime() - run.createdAt.getTime();
+          database.updateRun(runId, { 
+            status: 'cancelled',
+            completedAt: now,
+            durationMs: durationMs
+          });
+          refreshRuns();
+        } catch (error: any) {
+          logger.error(`Failed to stop task ${runId}`, 'App', { error });
+          refreshRuns();
+        }
       }
     },
     [state.runs, database, refreshRuns]
   );
 
+  const sendMessageToTask = useCallback(
+    async (runId: string, message: string) => {
+      const run = state.runs.find(r => r.id === runId);
+      if (!run) {
+        logger.warn(`Attempted to send message to non-existent run: ${runId}`, 'App');
+        return;
+      }
+
+      if (!run.readyToAct) {
+        logger.warn(`Task ${runId} is not ready for input`, 'App');
+        return;
+      }
+
+      try {
+        // Update prompt with new message and clear readyToAct
+        database.updateRun(runId, {
+          prompt: message,
+          readyToAct: false,
+          status: 'running',
+        });
+
+        // Refresh to get updated run
+        refreshRuns();
+        const updatedRun = database.getRun(runId);
+        if (updatedRun) {
+          // Restart the agent with the new message
+          await taskExecutor.startTask(runId);
+          refreshRuns();
+        }
+      } catch (error: any) {
+        logger.error(`Failed to send message to task ${runId}`, 'App', { error });
+        refreshRuns();
+      }
+    },
+    [state.runs, database, refreshRuns, taskExecutor]
+  );
+
+  const mergeTaskBranch = useCallback(
+    async (runId: string, targetBranch: string) => {
+      const run = state.runs.find(r => r.id === runId);
+      if (!run || !run.worktreePath) {
+        logger.warn(`Cannot merge: run ${runId} not found or no worktree`, 'App');
+        return;
+      }
+
+      try {
+        const result = mergeToBranch(run.worktreePath, targetBranch);
+        if (result.success) {
+          logger.info(`Merged task ${runId} branch to ${targetBranch}`, 'App');
+          refreshRuns();
+        } else {
+          logger.error(`Failed to merge task ${runId}`, 'App', { error: result.error });
+          throw new Error(result.error || 'Merge failed');
+        }
+      } catch (error: any) {
+        logger.error(`Error merging task ${runId}`, 'App', { error });
+        throw error;
+      }
+    },
+    [state.runs, refreshRuns]
+  );
+
+  const openPRForTask = useCallback(
+    async (runId: string) => {
+      const run = state.runs.find(r => r.id === runId);
+      if (!run || !run.worktreePath) {
+        logger.warn(`Cannot open PR: run ${runId} not found or no worktree`, 'App');
+        return;
+      }
+
+      try {
+        const prUrl = getPRUrl(run.worktreePath, run.baseBranch);
+        if (!prUrl) {
+          throw new Error('Could not determine PR URL. Make sure the repository has a remote configured.');
+        }
+
+        // Open URL in default browser
+        const command = process.platform === 'darwin' 
+          ? 'open' 
+          : process.platform === 'win32' 
+          ? 'start' 
+          : 'xdg-open';
+        
+        execSync(`${command} "${prUrl}"`, { stdio: 'ignore' });
+        logger.info(`Opened PR URL for task ${runId}: ${prUrl}`, 'App');
+      } catch (error: any) {
+        logger.error(`Failed to open PR for task ${runId}`, 'App', { error });
+        throw error;
+      }
+    },
+    [state.runs]
+  );
+
+  const showMergePrompt = useCallback(
+    (runId: string, defaultBranch: string) => {
+      setState(prev => ({
+        ...prev,
+        mergePrompt: { runId, defaultBranch },
+      }));
+    },
+    []
+  );
+
+  const hideMergePrompt = useCallback(() => {
+    setState(prev => ({ ...prev, mergePrompt: null }));
+  }, []);
+
+  const markTaskComplete = useCallback(
+    (runId: string) => {
+      const run = state.runs.find(r => r.id === runId);
+      if (!run) {
+        logger.warn(`Attempted to mark non-existent run as complete: ${runId}`, 'App');
+        return;
+      }
+
+      const now = new Date();
+      const durationMs = run.durationMs || (now.getTime() - run.createdAt.getTime());
+      
+      database.updateRun(runId, {
+        status: 'completed',
+        phase: 'finalization',
+        completedAt: now,
+        durationMs: durationMs,
+        readyToAct: false,
+      });
+      refreshRuns();
+      logger.info(`Marked task ${runId} as complete`, 'App');
+    },
+    [state.runs, database, refreshRuns]
+  );
 
   return (
     <AppContext.Provider
       value={{
         state,
         database,
+        taskExecutor,
         setCurrentView,
         setSelectedIndex,
         refreshRuns,
@@ -269,6 +425,12 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
         deleteRun,
         setSelectedRunId,
         toggleTaskStatus,
+        sendMessageToTask,
+        showMergePrompt,
+        hideMergePrompt,
+        mergeTaskBranch,
+        openPRForTask,
+        markTaskComplete,
       }}
     >
       {children}

@@ -43,7 +43,15 @@ export interface Preference {
   value: string;
 }
 
-export type ViewType = 'tasks' | 'skills' | 'commands' | 'hooks' | 'profiles' | 'agents' | 'new-task' | 'task-detail' | 'settings';
+export interface Message {
+  id: string;
+  runId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: Date;
+}
+
+export type ViewType = 'tasks' | 'skills' | 'commands' | 'hooks' | 'profiles' | 'agents' | 'new-task' | 'task-detail' | 'settings' | 'merge-prompt';
 
 export type AgentType = 'claude' | 'cursor';
 export type ThemeType = 'default' | 'matrix';

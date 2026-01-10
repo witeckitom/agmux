@@ -7,6 +7,7 @@ import { MainView } from '../components/MainView.js';
 import { CommandMode } from '../components/CommandMode.js';
 import { LogView } from '../components/LogView.js';
 import { ConfirmationDialog } from '../components/ConfirmationDialog.js';
+import { MergeBranchPromptView } from '../views/MergeBranchPromptView.js';
 import { useKeyboard } from '../hooks/useKeyboard.js';
 import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
@@ -17,7 +18,7 @@ interface AppContentProps {
 
 function AppContent({ database }: AppContentProps) {
   const { exit } = useInkApp();
-  const { state, refreshRuns, executeCommand } = useApp();
+  const { state, refreshRuns, executeCommand, hideMergePrompt, mergeTaskBranch } = useApp();
 
   // Set up keyboard handling
   useKeyboard();
@@ -61,22 +62,50 @@ function AppContent({ database }: AppContentProps) {
     terminalDimensions.height - topBarHeight - commandModeHeight - logViewHeight
   );
 
-  // If confirmation dialog is showing, render it instead of main content
-  if (state.confirmation) {
-    return (
-      <Box
-        flexDirection="column"
-        width={terminalDimensions.width}
-        height={terminalDimensions.height}
-      >
-        <ConfirmationDialog
-          message={state.confirmation.message}
-          onConfirm={state.confirmation.onConfirm}
-          onCancel={state.confirmation.onCancel}
-        />
-      </Box>
-    );
-  }
+        // If merge prompt is showing, render it instead of main content
+        if (state.mergePrompt) {
+          return (
+            <Box
+              flexDirection="column"
+              width={terminalDimensions.width}
+              height={terminalDimensions.height}
+            >
+              <MergeBranchPromptView
+                runId={state.mergePrompt.runId}
+                defaultBranch={state.mergePrompt.defaultBranch}
+                onConfirm={async (branch: string) => {
+                  try {
+                    await mergeTaskBranch(state.mergePrompt!.runId, branch);
+                    hideMergePrompt();
+                  } catch (error) {
+                    logger.error('Merge failed', 'App', { error });
+                    // Keep prompt open on error so user can try again
+                  }
+                }}
+                onCancel={() => {
+                  hideMergePrompt();
+                }}
+              />
+            </Box>
+          );
+        }
+
+        // If confirmation dialog is showing, render it instead of main content
+        if (state.confirmation) {
+          return (
+            <Box
+              flexDirection="column"
+              width={terminalDimensions.width}
+              height={terminalDimensions.height}
+            >
+              <ConfirmationDialog
+                message={state.confirmation.message}
+                onConfirm={state.confirmation.onConfirm}
+                onCancel={state.confirmation.onCancel}
+              />
+            </Box>
+          );
+        }
 
   return (
     <Box

@@ -46,6 +46,11 @@ export function useKeyboard() {
     setCurrentView,
     setSelectedRunId,
     toggleTaskStatus,
+    showMergePrompt,
+    hideMergePrompt,
+    mergeTaskBranch,
+    openPRForTask,
+    markTaskComplete,
   } = useApp();
 
 
@@ -89,8 +94,8 @@ export function useKeyboard() {
     }
 
     // Skip normal mode handling if we're in a special view that handles its own input
-    if (state.currentView === 'new-task') {
-      // Let NewTaskView handle its own input
+    if (state.currentView === 'new-task' || state.currentView === 'merge-prompt') {
+      // Let NewTaskView or MergeBranchPromptView handle their own input
       return;
     }
 
@@ -284,6 +289,21 @@ export function useKeyboard() {
         return;
       }
 
+      // D for mark complete (only if task is in Needs Input state)
+      if (!key.shift && (input === 'D' || input === 'd')) {
+        if (state.runs.length === 0 || state.selectedIndex < 0 || state.selectedIndex >= state.runs.length) {
+          logger.warn('No task selected to complete', 'Keyboard');
+          return;
+        }
+        const selectedRun = state.runs[state.selectedIndex];
+        if (selectedRun.readyToAct) {
+          logger.info(`Mark complete requested for task: ${selectedRun.id}`, 'Keyboard');
+          markTaskComplete(selectedRun.id);
+          return;
+        }
+        // If not readyToAct, fall through (don't handle D here)
+      }
+
       // Shift+D for delete task
       if (key.shift && (input === 'd' || input === 'D')) {
         if (state.runs.length === 0 || state.selectedIndex < 0 || state.selectedIndex >= state.runs.length) {
@@ -309,18 +329,34 @@ export function useKeyboard() {
       }
     }
 
-    // Task detail view hotkeys
-    if (state.currentView === 'task-detail') {
-      if (input === 'S' || input === 's') {
-        if (!state.selectedRunId) {
-          logger.warn('No task selected', 'Keyboard');
-          return;
-        }
-        logger.info(`Toggling task status: ${state.selectedRunId}`, 'Keyboard');
-        toggleTaskStatus(state.selectedRunId);
-        return;
-      }
-    }
+           // Task detail view hotkeys
+           if (state.currentView === 'task-detail') {
+             if (input === 'S' || input === 's') {
+               if (!state.selectedRunId) {
+                 logger.warn('No task selected', 'Keyboard');
+                 return;
+               }
+               logger.info(`Toggling task status: ${state.selectedRunId}`, 'Keyboard');
+               toggleTaskStatus(state.selectedRunId);
+               return;
+             }
+
+             // File navigation in task detail
+             // Let TaskDetailView handle its own input when editing chat
+             // But handle file selection here
+             const selectedRun = state.runs.find(r => r.id === state.selectedRunId);
+             if (selectedRun && selectedRun.worktreePath) {
+               // j/k for file navigation
+               if (input === 'j' || key.downArrow) {
+                 // This will be handled by TaskDetailView's useInput
+                 return;
+               }
+               if (input === 'k' || key.upArrow) {
+                 // This will be handled by TaskDetailView's useInput
+                 return;
+               }
+             }
+           }
 
     // View switching shortcuts (optional)
     if (key.ctrl) {

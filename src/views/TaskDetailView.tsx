@@ -1,7 +1,10 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
+import { useInput } from 'ink';
 import { useApp } from '../context/AppContext.js';
 import { logger } from '../utils/logger.js';
+import { Message } from '../models/types.js';
+import { getChangedFiles, getFileDiff, ChangedFile } from '../utils/gitUtils.js';
 
 function formatDuration(ms: number, showSeconds: boolean = true): string {
   const seconds = Math.floor(ms / 1000);
@@ -29,7 +32,7 @@ function renderProgressBar(percent: number, width: number): string {
 }
 
 export function TaskDetailView() {
-  const { state, refreshRuns } = useApp();
+  const { state, refreshRuns, database, sendMessageToTask } = useApp();
   const terminalWidth = useMemo(() => process.stdout.columns || 80, []);
   const terminalHeight = useMemo(() => process.stdout.rows || 24, []);
   
@@ -37,6 +40,13 @@ export function TaskDetailView() {
     if (!state.selectedRunId) return null;
     return state.runs.find(r => r.id === state.selectedRunId) || null;
   }, [state.runs, state.selectedRunId]);
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [editingChat, setEditingChat] = useState(false);
+  const [changedFiles, setChangedFiles] = useState<ChangedFile[]>([]);
+  const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
+  const [fileDiff, setFileDiff] = useState<string>('');
 
   const [runningTime, setRunningTime] = useState<number>(0);
 
@@ -72,12 +82,118 @@ export function TaskDetailView() {
   }, [selectedRun]);
 
   useEffect(() => {
-    // Refresh runs periodically when viewing task detail
+    // Load messages when selected run changes
+    if (selectedRun) {
+      const runMessages = database.getMessagesByRunId(selectedRun.id);
+      setMessages(runMessages);
+    } else {
+      setMessages([]);
+    }
+  }, [selectedRun, database]);
+
+  useEffect(() => {
+    // Load changed files when selected run changes
+    if (selectedRun && selectedRun.worktreePath) {
+      try {
+        const files = getChangedFiles(selectedRun.worktreePath);
+        setChangedFiles(files);
+        if (files.length > 0 && selectedFileIndex < files.length) {
+          const diff = getFileDiff(selectedRun.worktreePath, files[selectedFileIndex].path);
+          setFileDiff(diff);
+        } else {
+          setFileDiff('');
+        }
+      } catch (error) {
+        setChangedFiles([]);
+        setFileDiff('');
+      }
+    } else {
+      setChangedFiles([]);
+      setFileDiff('');
+    }
+  }, [selectedRun, selectedFileIndex]);
+
+  useEffect(() => {
+    // Refresh runs and messages more frequently when viewing task detail (for streaming)
     const interval = setInterval(() => {
       refreshRuns();
-    }, 2000);
+      if (selectedRun) {
+        const runMessages = database.getMessagesByRunId(selectedRun.id);
+        setMessages(runMessages);
+
+        // Refresh changed files
+        if (selectedRun.worktreePath) {
+          try {
+            const files = getChangedFiles(selectedRun.worktreePath);
+            setChangedFiles(files);
+            if (files.length > 0 && selectedFileIndex < files.length) {
+              const diff = getFileDiff(selectedRun.worktreePath, files[selectedFileIndex].path);
+              setFileDiff(diff);
+            }
+          } catch {
+            // Ignore errors
+          }
+        }
+      }
+    }, 500); // Refresh every 500ms for better streaming experience
     return () => clearInterval(interval);
-  }, [refreshRuns]);
+  }, [refreshRuns, selectedRun, database, selectedFileIndex]);
+
+  // Handle input for chat and file navigation
+  useInput((input, key) => {
+    // File navigation (when not editing chat)
+    if (!editingChat && changedFiles.length > 0) {
+      if (input === 'j' || key.downArrow) {
+        setSelectedFileIndex(prev => Math.min(changedFiles.length - 1, prev + 1));
+        return;
+      }
+      if (input === 'k' || key.upArrow) {
+        setSelectedFileIndex(prev => Math.max(0, prev - 1));
+        return;
+      }
+    }
+
+    // Chat input handling when task is in "Needs Input" state
+    if (!selectedRun) {
+      return; // Let other handlers process
+    }
+
+    // Only handle chat input if task is ready for input
+    if (selectedRun.readyToAct) {
+      // Start editing chat input
+      if (!editingChat && key.return) {
+        setEditingChat(true);
+        return;
+      }
+
+      if (editingChat) {
+        if (key.escape) {
+          setEditingChat(false);
+          setChatInput('');
+          return;
+        }
+
+        if (key.return && chatInput.trim()) {
+          // Send message
+          const message = chatInput.trim();
+          setChatInput('');
+          setEditingChat(false);
+          sendMessageToTask(selectedRun.id, message);
+          return;
+        }
+
+        if (key.backspace || key.delete) {
+          setChatInput(prev => prev.slice(0, -1));
+          return;
+        }
+
+        if (input && input.length === 1) {
+          setChatInput(prev => prev + input);
+          return;
+        }
+      }
+    }
+  });
 
   if (!selectedRun) {
     return (
@@ -142,22 +258,59 @@ export function TaskDetailView() {
 
       {/* Three column layout */}
       <Box flexDirection="row" flexGrow={1} height={availableHeight}>
-        {/* Chat column */}
-        <Box 
-          width={columnWidth} 
-          borderRight={true} 
-          borderStyle="single" 
-          flexDirection="column"
-          paddingX={1}
-          paddingY={1}
-        >
-          <Box marginBottom={1}>
-            <Text bold color="cyan">Chat</Text>
-          </Box>
-          <Box flexGrow={1}>
-            <Text dimColor>No messages yet</Text>
-          </Box>
-        </Box>
+              {/* Chat column */}
+              <Box 
+                width={columnWidth} 
+                borderRight={true} 
+                borderStyle="single" 
+                flexDirection="column"
+                paddingX={1}
+                paddingY={1}
+              >
+                <Box marginBottom={1}>
+                  <Text bold color="cyan">Chat</Text>
+                </Box>
+                <Box flexGrow={1} flexDirection="column">
+                  {messages.length === 0 ? (
+                    <Text dimColor>No messages yet</Text>
+                  ) : (
+                    messages.map((msg) => (
+                      <Box key={msg.id} marginBottom={1} flexDirection="column">
+                        <Box marginBottom={0}>
+                          <Text bold color={msg.role === 'user' ? 'cyan' : 'green'}>
+                            {msg.role === 'user' ? 'You' : 'Assistant'}:
+                          </Text>
+                        </Box>
+                        <Box paddingX={1}>
+                          <Text wrap="wrap">{msg.content}</Text>
+                        </Box>
+                      </Box>
+                    ))
+                  )}
+                </Box>
+                {/* Chat input at bottom */}
+                {selectedRun.readyToAct && (
+                  <Box borderTop={true} borderStyle="single" marginTop={1} paddingY={0}>
+                    {editingChat ? (
+                      <Box flexDirection="column">
+                        <Box>
+                          <Text>
+                            <Text color="cyan">{chatInput}</Text>
+                            <Text color="yellow">█</Text>
+                          </Text>
+                        </Box>
+                        <Box marginTop={0}>
+                          <Text dimColor>Enter to send, Esc to cancel</Text>
+                        </Box>
+                      </Box>
+                    ) : (
+                      <Box>
+                        <Text dimColor>Press Enter to continue conversation...</Text>
+                      </Box>
+                    )}
+                  </Box>
+                )}
+              </Box>
 
         {/* Files changed column */}
         <Box 
@@ -170,9 +323,23 @@ export function TaskDetailView() {
         >
           <Box marginBottom={1}>
             <Text bold color="cyan">Files Changed</Text>
+            {changedFiles.length > 0 && (
+              <Text dimColor> ({changedFiles.length})</Text>
+            )}
           </Box>
-          <Box flexGrow={1}>
-            <Text dimColor>No files changed yet</Text>
+          <Box flexGrow={1} flexDirection="column">
+            {changedFiles.length === 0 ? (
+              <Text dimColor>No files changed yet</Text>
+            ) : (
+              changedFiles.map((file, index) => (
+                <Box key={file.path} marginBottom={0}>
+                  <Text color={index === selectedFileIndex ? 'cyan' : undefined} bold={index === selectedFileIndex}>
+                    {index === selectedFileIndex ? '▶ ' : '  '}
+                    {file.status === 'A' ? '+' : file.status === 'D' ? '-' : file.status === 'R' ? '→' : 'M'} {file.path}
+                  </Text>
+                </Box>
+              ))
+            )}
           </Box>
         </Box>
 
@@ -185,9 +352,16 @@ export function TaskDetailView() {
         >
           <Box marginBottom={1}>
             <Text bold color="cyan">Changes</Text>
+            {changedFiles.length > 0 && selectedFileIndex < changedFiles.length && (
+              <Text dimColor> - {changedFiles[selectedFileIndex].path}</Text>
+            )}
           </Box>
           <Box flexGrow={1}>
-            <Text dimColor>No changes to display</Text>
+            {fileDiff ? (
+              <Text wrap="wrap">{fileDiff}</Text>
+            ) : (
+              <Text dimColor>No changes to display</Text>
+            )}
           </Box>
         </Box>
       </Box>

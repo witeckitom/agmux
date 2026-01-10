@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { Run, Worktree, Preference } from '../models/types.js';
+import { Run, Worktree, Preference, Message } from '../models/types.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -257,6 +257,49 @@ export class DatabaseManager {
     this.db
       .prepare('INSERT OR REPLACE INTO preferences (key, value) VALUES (?, ?)')
       .run(key, value);
+  }
+
+  // Message operations
+  createMessage(message: Omit<Message, 'createdAt'>): Message {
+    const now = new Date();
+    this.db
+      .prepare(
+        'INSERT INTO messages (id, run_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(
+        message.id,
+        message.runId,
+        message.role,
+        message.content,
+        now.toISOString()
+      );
+    return {
+      ...message,
+      createdAt: now,
+    };
+  }
+
+  getMessagesByRunId(runId: string): Message[] {
+    const rows = this.db
+      .prepare('SELECT * FROM messages WHERE run_id = ? ORDER BY created_at ASC')
+      .all(runId) as any[];
+    return rows.map(row => ({
+      id: row.id,
+      runId: row.run_id,
+      role: row.role as 'user' | 'assistant',
+      content: row.content,
+      createdAt: new Date(row.created_at),
+    }));
+  }
+
+  updateMessage(messageId: string, content: string): void {
+    this.db
+      .prepare('UPDATE messages SET content = ? WHERE id = ?')
+      .run(content, messageId);
+  }
+
+  deleteMessagesByRunId(runId: string): void {
+    this.db.prepare('DELETE FROM messages WHERE run_id = ?').run(runId);
   }
 
   close(): void {

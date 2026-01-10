@@ -44,3 +44,16 @@ CREATE TABLE IF NOT EXISTS preferences (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Conversation messages
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    role TEXT NOT NULL, -- 'user' or 'assistant'
+    content TEXT NOT NULL,
+    created_at DATETIME NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_run_id ON messages(run_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at ASC);

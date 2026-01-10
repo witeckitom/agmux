@@ -50,3 +50,6 @@ coverage/
 
 # TypeScript
 *.tsbuildinfo
+
+# Git worktrees created by the application
+.worktrees/
