@@ -3,7 +3,6 @@ import { Box, Text } from 'ink';
 import { useApp } from '../context/AppContext.js';
 import { execSync } from 'child_process';
 import { getViewCommands } from '../utils/viewCommands.js';
-import { AMUX_LOGO_SMALL } from '../utils/amuxLogo.js';
 
 export const TopBar = React.memo(function TopBar() {
   const { state } = useApp();
@@ -33,9 +32,7 @@ export const TopBar = React.memo(function TopBar() {
   );
   const viewCommands = useMemo(() => getViewCommands(state.currentView), [state.currentView]);
 
-  // Make nav bar taller to fit ASCII logo (6 lines) + padding
   const navBarHeight = viewCommands.length > 0 && !state.commandMode ? 5 : 4;
-  const logoLines = AMUX_LOGO_SMALL.split('\n').filter(line => line.trim());
 
   return (
     <Box 
@@ -75,22 +72,6 @@ export const TopBar = React.memo(function TopBar() {
             </Text>
           </Box>
         )}
-      </Box>
-      
-      {/* Right side - ASCII logo */}
-      <Box 
-        paddingX={1}
-        justifyContent="center"
-        alignItems="flex-end"
-        flexDirection="column"
-      >
-        <Box flexDirection="column">
-          {logoLines.map((line, index) => (
-            <Text key={index} color="cyan" bold>
-              {line}
-            </Text>
-          ))}
-        </Box>
       </Box>
     </Box>
   );
