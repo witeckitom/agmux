@@ -55,6 +55,10 @@ export function useKeyboard() {
     openWorktreeInVSCode,
   } = useApp();
   const { setCommandInput, getCommandInput } = useInputContext();
+  
+  // HARD DEBOUNCE: Prevent rapid toggleTaskStatus calls
+  const lastToggleRef = useRef<number>(0);
+  const TOGGLE_DEBOUNCE_MS = 2000; // 2 seconds between toggles
 
 
   useInput((input, key) => {
@@ -334,6 +338,14 @@ export function useKeyboard() {
           logger.warn('No task selected to start/stop', 'Keyboard');
           return;
         }
+        // DEBOUNCE CHECK
+        const now = Date.now();
+        if (now - lastToggleRef.current < TOGGLE_DEBOUNCE_MS) {
+          logger.warn(`DEBOUNCED: toggleTaskStatus called too quickly (${now - lastToggleRef.current}ms)`, 'Keyboard');
+          return;
+        }
+        lastToggleRef.current = now;
+        
         const selectedRun = state.runs[state.selectedIndex];
         logger.info(`Start/Stop requested for task: ${selectedRun.id}`, 'Keyboard');
         toggleTaskStatus(selectedRun.id);
@@ -348,6 +360,14 @@ export function useKeyboard() {
                  logger.warn('No task selected', 'Keyboard');
                  return;
                }
+               // DEBOUNCE CHECK
+               const now = Date.now();
+               if (now - lastToggleRef.current < TOGGLE_DEBOUNCE_MS) {
+                 logger.warn(`DEBOUNCED: toggleTaskStatus called too quickly (${now - lastToggleRef.current}ms)`, 'Keyboard');
+                 return;
+               }
+               lastToggleRef.current = now;
+               
                logger.info(`Toggling task status: ${state.selectedRunId}`, 'Keyboard');
                toggleTaskStatus(state.selectedRunId);
                return;

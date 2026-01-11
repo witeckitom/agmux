@@ -352,41 +352,60 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     setState(prev => ({ ...prev, selectedRunId: runId }));
   }, []);
 
+  // HARD LOCK for toggleTaskStatus to prevent repeated calls
+  const toggleLockRef = useRef<Set<string>>(new Set());
+  
   const toggleTaskStatus = useCallback(
     async (runId: string) => {
-      const run = state.runs.find(r => r.id === runId);
-      if (!run) {
-        logger.warn(`Attempted to toggle status for non-existent run: ${runId}`, 'App');
+      // HARD LOCK CHECK
+      if (toggleLockRef.current.has(runId)) {
+        logger.error(`BLOCKED: toggleTaskStatus already in progress for ${runId}`, 'App');
         return;
       }
+      toggleLockRef.current.add(runId);
+      
+      try {
+        const run = state.runs.find(r => r.id === runId);
+        if (!run) {
+          logger.warn(`Attempted to toggle status for non-existent run: ${runId}`, 'App');
+          return;
+        }
 
-      if (run.status === 'queued' || run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
-        // Start the task
-        logger.info(`Starting task: ${runId}`, 'App');
-        try {
-          await taskExecutor.startTask(runId);
-          refreshRuns();
-        } catch (error: any) {
-          logger.error(`Failed to start task ${runId}`, 'App', { error });
-          refreshRuns();
+        logger.info(`toggleTaskStatus called for ${runId}, current status: ${run.status}, readyToAct: ${run.readyToAct}`, 'App');
+
+        if (run.status === 'queued' || run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+          // Start the task
+          logger.info(`Starting task: ${runId}`, 'App');
+          try {
+            await taskExecutor.startTask(runId);
+            refreshRuns();
+          } catch (error: any) {
+            logger.error(`Failed to start task ${runId}`, 'App', { error });
+            refreshRuns();
+          }
+        } else if (run.status === 'running') {
+          // Stop the task - calculate and save duration
+          logger.info(`Stopping task: ${runId}`, 'App');
+          try {
+            await taskExecutor.stopTask(runId);
+            const now = new Date();
+            const durationMs = now.getTime() - run.createdAt.getTime();
+            database.updateRun(runId, { 
+              status: 'cancelled',
+              completedAt: now,
+              durationMs: durationMs
+            });
+            refreshRuns();
+          } catch (error: any) {
+            logger.error(`Failed to stop task ${runId}`, 'App', { error });
+            refreshRuns();
+          }
         }
-      } else if (run.status === 'running') {
-        // Stop the task - calculate and save duration
-        logger.info(`Stopping task: ${runId}`, 'App');
-        try {
-          await taskExecutor.stopTask(runId);
-          const now = new Date();
-          const durationMs = now.getTime() - run.createdAt.getTime();
-          database.updateRun(runId, { 
-            status: 'cancelled',
-            completedAt: now,
-            durationMs: durationMs
-          });
-          refreshRuns();
-        } catch (error: any) {
-          logger.error(`Failed to stop task ${runId}`, 'App', { error });
-          refreshRuns();
-        }
+      } finally {
+        // Release lock after 3 seconds to prevent rapid re-calls
+        setTimeout(() => {
+          toggleLockRef.current.delete(runId);
+        }, 3000);
       }
     },
     [state.runs, database, refreshRuns]
@@ -394,20 +413,18 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
 
   const sendMessageToTask = useCallback(
     async (runId: string, message: string) => {
-      const run = state.runs.find(r => r.id === runId);
+      // Read fresh from database to avoid stale state issues
+      const run = database.getRun(runId);
       if (!run) {
         logger.warn(`Attempted to send message to non-existent run: ${runId}`, 'App');
         return;
       }
 
-      if (!run.readyToAct) {
-        logger.warn(`Task ${runId} is not ready for input`, 'App');
-        return;
-      }
-
       try {
-        // Use TaskExecutor's sendMessageToTask which handles the persistent conversation
-        // This will either continue an existing agent session or start a new one
+        // Use TaskExecutor's sendMessageToTask which handles everything
+        // - Creates agent if needed
+        // - Uses existing worktree  
+        // - Manages conversation state
         await taskExecutor.sendMessageToTask(runId, message);
         refreshRuns();
       } catch (error: any) {
@@ -415,7 +432,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
         refreshRuns();
       }
     },
-    [state.runs, refreshRuns, taskExecutor]
+    [database, refreshRuns, taskExecutor]
   );
 
   const mergeTaskBranch = useCallback(

@@ -1,302 +1,110 @@
-import { spawn, ChildProcess, execSync } from 'child_process';
-import { existsSync, accessSync, constants, readdirSync } from 'fs';
+import { spawn, ChildProcess } from 'child_process';
+import { existsSync, readdirSync } from 'fs';
 import { resolve } from 'path';
+import { execSync } from 'child_process';
 import { Agent } from './Agent.js';
 import { Run, Message } from '../models/types.js';
 import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
 
-interface TaskProcess {
-  process: ChildProcess | null; // null when process has exited but task is waiting for input
-  waitingForInput: boolean;
+interface TaskState {
+  process: ChildProcess | null;
   worktreePath: string;
-  stdoutBuffer: string;
-  assistantMessageId: string | null;
-  lastSaveTime: number;
-  onMessage: (content: string) => void;
-  onError: (error: Error) => void;
-  onComplete: () => void;
+  sessionId: string | null;  // Cursor's session ID for resuming
+  waitingForInput: boolean;
+}
+
+// Cursor JSON output types
+interface CursorJsonMessage {
+  type: 'system' | 'user' | 'assistant' | 'thinking' | 'tool_call' | 'result';
+  session_id?: string;
+  message?: {
+    role: string;
+    content: Array<{ type: string; text?: string }>;
+  };
+  text?: string;  // for thinking
+  subtype?: string;
+  model?: string;
 }
 
 export class CursorAgent implements Agent {
   private database: DatabaseManager;
-  private runningTasks: Map<string, TaskProcess> = new Map();
-  private readonly SAVE_INTERVAL_MS = 500;
+  private runningTasks: Map<string, TaskState> = new Map();
+  private static totalSpawnCount = 0;
 
   constructor(database: DatabaseManager) {
     this.database = database;
   }
 
-  private checkCursorAvailable(): { available: boolean; path?: string } {
-    const commonPaths = [
-      '/usr/local/bin/cursor',
-      '/opt/homebrew/bin/cursor',
-      '/usr/bin/cursor',
+  private findCursorAgent(): string | null {
+    // Try cursor-agent first (the CLI tool)
+    const paths = [
+      '/usr/local/bin/cursor-agent',
+      '/opt/homebrew/bin/cursor-agent',
     ];
 
-    for (const path of commonPaths) {
-      try {
-        if (existsSync(path)) {
-          accessSync(path, constants.X_OK);
-          logger.debug(`Found cursor at common path: ${path}`, 'CursorAgent');
-          return { available: true, path };
-        }
-      } catch {
-        // Path doesn't exist or isn't executable
+    for (const path of paths) {
+      if (existsSync(path)) {
+        return path;
       }
     }
 
+    // Try which
     try {
-      const whichResult = execSync('which cursor', { 
+      const result = execSync('which cursor-agent', { 
         encoding: 'utf-8', 
-        stdio: 'pipe',
-        env: { ...process.env, PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' }
+        stdio: 'pipe' 
       }).trim();
-      if (whichResult && whichResult.length > 0 && existsSync(whichResult)) {
-        logger.debug(`Found cursor via which: ${whichResult}`, 'CursorAgent');
-        return { available: true, path: whichResult };
+      if (result && existsSync(result)) {
+        return result;
       }
-    } catch (error: any) {
-      logger.debug(`which cursor failed: ${error.message}`, 'CursorAgent');
+    } catch {
+      // Not found via which
     }
 
-    logger.warn('Cursor not found in PATH or common locations', 'CursorAgent');
-    return { available: false };
+    // Fallback to cursor agent (space)
+    try {
+      const result = execSync('which cursor', { 
+        encoding: 'utf-8', 
+        stdio: 'pipe' 
+      }).trim();
+      if (result && existsSync(result)) {
+        return result;  // Will use 'cursor agent' subcommand
+      }
+    } catch {
+      // Not found
+    }
+
+    return null;
   }
 
   private resolveWorktreePath(run: Run): string {
-    let worktreeCwd = process.cwd();
+    if (run.worktreePath && existsSync(run.worktreePath)) {
+      return run.worktreePath;
+    }
     
-    if (!run.worktreePath || run.worktreePath.trim() === '' || run.worktreePath.startsWith('/tmp/')) {
-      const projectRoot = process.cwd();
-      const worktreesDir = resolve(projectRoot, '.worktrees');
-      
-      if (existsSync(worktreesDir)) {
-        try {
-          const worktreeDirs = readdirSync(worktreesDir, { withFileTypes: true })
-            .filter(dirent => dirent.isDirectory())
-            .map(dirent => resolve(worktreesDir, dirent.name));
-          
-          const runIdPrefix = run.id.slice(0, 8);
-          for (const dir of worktreeDirs) {
-            const dirName = dir.split('/').pop() || '';
-            if (dirName.includes(runIdPrefix)) {
-              logger.info(`Found worktree by run ID: ${dir}`, 'CursorAgent');
-              worktreeCwd = dir;
-              break;
-            }
+    const projectRoot = process.cwd();
+    const worktreesDir = resolve(projectRoot, '.worktrees');
+    
+    if (existsSync(worktreesDir)) {
+      try {
+        const worktreeDirs = readdirSync(worktreesDir, { withFileTypes: true })
+          .filter(dirent => dirent.isDirectory())
+          .map(dirent => resolve(worktreesDir, dirent.name));
+        
+        const runIdPrefix = run.id.slice(0, 8);
+        for (const dir of worktreeDirs) {
+          const dirName = dir.split('/').pop() || '';
+          if (dirName.includes(runIdPrefix)) {
+            return dir;
           }
-          
-          if (worktreeCwd === process.cwd() && worktreeDirs.length === 1) {
-            logger.info(`Using only available worktree: ${worktreeDirs[0]}`, 'CursorAgent');
-            worktreeCwd = worktreeDirs[0];
-          }
-        } catch (error: any) {
-          logger.warn(`Could not search for worktree: ${error.message}`, 'CursorAgent');
         }
-      }
-      
-      if (worktreeCwd === process.cwd()) {
-        logger.warn(`No worktree path set for task ${run.id}, using current directory`, 'CursorAgent');
-      }
-    } else {
-      const absoluteWorktreePath = run.worktreePath.startsWith('/') 
-        ? run.worktreePath 
-        : resolve(process.cwd(), run.worktreePath);
-      
-      if (existsSync(absoluteWorktreePath)) {
-        worktreeCwd = absoluteWorktreePath;
-        logger.info(`Using worktree directory: ${worktreeCwd}`, 'CursorAgent');
-      } else {
-        logger.warn(`Worktree path doesn't exist: ${absoluteWorktreePath}`, 'CursorAgent');
+      } catch {
+        // Ignore
       }
     }
     
-    return worktreeCwd;
-  }
-
-  private createEnhancedPrompt(prompt: string, worktreeCwd: string): string {
-    return `CRITICAL: You are working in a git worktree directory: ${worktreeCwd}. 
-- DO NOT change directories (do not use 'cd' command)
-- DO NOT navigate to the main repository root
-- All file operations MUST happen in the current directory: ${worktreeCwd}
-- If you need to reference files, use relative paths from this directory
-- The git repository root is NOT where you should work - stay in ${worktreeCwd}
-
-${prompt}`;
-  }
-
-  private createWorktreeEnv(worktreeCwd: string): NodeJS.ProcessEnv {
-    return {
-      ...process.env,
-      GIT_WORK_TREE: worktreeCwd,
-      PWD: worktreeCwd,
-      OLDPWD: worktreeCwd,
-    };
-  }
-
-  private verifyWorktree(worktreeCwd: string): void {
-    const gitFile = resolve(worktreeCwd, '.git');
-    if (!existsSync(gitFile)) {
-      throw new Error(`Worktree directory ${worktreeCwd} does not appear to be a valid git worktree`);
-    }
-    
-    try {
-      const currentBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: worktreeCwd,
-        encoding: 'utf-8',
-      }).trim();
-      logger.info(`Worktree branch verified: ${currentBranch}`, 'CursorAgent', { worktreeCwd });
-    } catch (error: any) {
-      logger.warn(`Could not verify worktree branch: ${error.message}`, 'CursorAgent');
-    }
-  }
-
-  private setupProcessHandlers(runId: string, taskProcess: TaskProcess): void {
-    const cursorProcess = taskProcess.process;
-    if (!cursorProcess) return;
-
-    cursorProcess.stdout?.on('data', (data: Buffer) => {
-      const chunk = data.toString();
-      taskProcess.stdoutBuffer += chunk;
-      taskProcess.onMessage(chunk);
-      
-      logger.debug(`Cursor stdout received for task ${runId}`, 'CursorAgent', { 
-        chunkLength: chunk.length,
-        totalLength: taskProcess.stdoutBuffer.length,
-        preview: chunk.substring(0, 100),
-      });
-
-      const now = Date.now();
-      if (!taskProcess.assistantMessageId) {
-        taskProcess.assistantMessageId = crypto.randomUUID();
-        const assistantMessage: Message = {
-          id: taskProcess.assistantMessageId,
-          runId: runId,
-          role: 'assistant',
-          content: taskProcess.stdoutBuffer,
-          createdAt: new Date(),
-        };
-        this.database.createMessage(assistantMessage);
-        taskProcess.lastSaveTime = now;
-        logger.debug(`Created assistant message for task ${runId}`, 'CursorAgent', { 
-          messageId: taskProcess.assistantMessageId,
-        });
-      } else if (now - taskProcess.lastSaveTime > this.SAVE_INTERVAL_MS) {
-        this.database.updateMessage(taskProcess.assistantMessageId, taskProcess.stdoutBuffer);
-        taskProcess.lastSaveTime = now;
-        logger.debug(`Updated assistant message for task ${runId}`, 'CursorAgent', { 
-          messageId: taskProcess.assistantMessageId,
-          contentLength: taskProcess.stdoutBuffer.length,
-        });
-      }
-    });
-
-    cursorProcess.stderr?.on('data', (data: Buffer) => {
-      const chunk = data.toString();
-      logger.warn(`Cursor agent stderr for task ${runId}`, 'CursorAgent', { stderr: chunk });
-    });
-
-    cursorProcess.on('close', (code: number | null) => {
-      const task = this.runningTasks.get(runId);
-      if (!task) return;
-
-      // Final save of assistant message
-      if (task.assistantMessageId && task.stdoutBuffer.trim()) {
-        this.database.updateMessage(task.assistantMessageId, task.stdoutBuffer.trim());
-      } else if (!task.assistantMessageId && task.stdoutBuffer.trim()) {
-        const assistantMessage: Message = {
-          id: crypto.randomUUID(),
-          runId: runId,
-          role: 'assistant',
-          content: task.stdoutBuffer.trim(),
-          createdAt: new Date(),
-        };
-        this.database.createMessage(assistantMessage);
-      }
-
-      // Process has exited - mark as waiting for input
-      // Keep the task in our map so we can continue the conversation
-      task.process = null;
-      task.waitingForInput = true;
-      task.stdoutBuffer = '';
-      task.assistantMessageId = null;
-      
-      if (code === 0) {
-        logger.info(`Cursor agent completed for task ${runId}, waiting for user input`, 'CursorAgent');
-        task.onComplete();
-      } else {
-        // On error, remove from running tasks entirely
-        this.runningTasks.delete(runId);
-        const error = new Error(`Cursor agent exited with code ${code}`);
-        logger.error(`Cursor agent failed for task ${runId}`, 'CursorAgent', { code });
-        task.onError(error);
-      }
-    });
-
-    cursorProcess.on('error', (error: Error & { code?: string }) => {
-      const task = this.runningTasks.get(runId);
-      this.runningTasks.delete(runId);
-      
-      let errorMessage = error.message;
-      if (error.code === 'ENOENT') {
-        errorMessage = `Cursor command not found. Please ensure Cursor is installed and the 'cursor' command is in your PATH.`;
-      }
-      
-      const enhancedError = new Error(errorMessage);
-      logger.error(`Cursor agent error for task ${runId}`, 'CursorAgent', { error: enhancedError.message });
-      task?.onError(enhancedError);
-    });
-  }
-
-  private spawnCursorProcess(
-    runId: string,
-    prompt: string,
-    worktreePath: string,
-    onMessage: (content: string) => void,
-    onError: (error: Error) => void,
-    onComplete: () => void
-  ): void {
-    const cursorCheck = this.checkCursorAvailable();
-    const cursorPath = cursorCheck.path || 'cursor';
-    
-    if (!cursorCheck.available) {
-      logger.warn(`Cursor check failed, attempting to use '${cursorPath}' anyway`, 'CursorAgent');
-    }
-
-    const enhancedPrompt = this.createEnhancedPrompt(prompt, worktreePath);
-    const worktreeEnv = this.createWorktreeEnv(worktreePath);
-    
-    logger.info(`Spawning cursor process`, 'CursorAgent', {
-      cwd: worktreePath,
-      taskId: runId,
-    });
-    
-    const cursorProcess = spawn(cursorPath, ['agent', enhancedPrompt], {
-      cwd: worktreePath,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: worktreeEnv,
-    });
-    
-    logger.info(`Cursor process spawned`, 'CursorAgent', {
-      pid: cursorProcess.pid,
-      cwd: worktreePath,
-    });
-
-    const taskProcess: TaskProcess = {
-      process: cursorProcess,
-      waitingForInput: false,
-      worktreePath: worktreePath,
-      stdoutBuffer: '',
-      assistantMessageId: null,
-      lastSaveTime: Date.now(),
-      onMessage,
-      onError,
-      onComplete,
-    };
-
-    this.runningTasks.set(runId, taskProcess);
-    this.setupProcessHandlers(runId, taskProcess);
+    return process.cwd();
   }
 
   async startTask(
@@ -305,16 +113,26 @@ ${prompt}`;
     onError: (error: Error) => void,
     onComplete: () => void
   ): Promise<void> {
+    const existingTask = this.runningTasks.get(run.id);
+    if (existingTask && existingTask.process !== null) {
+      logger.warn(`Task ${run.id} already has a running process, ignoring`, 'CursorAgent');
+      return;
+    }
+    
+    // If we have an existing session, continue it
+    if (existingTask && existingTask.waitingForInput && existingTask.sessionId) {
+      return this.sendMessage(run.id, run.prompt || '', onMessage, onError, onComplete);
+    }
+
     if (!run.prompt) {
       onError(new Error('No prompt provided for task'));
       return;
     }
 
-    // Check if we already have a task waiting for input - continue conversation
-    const existingTask = this.runningTasks.get(run.id);
-    if (existingTask && existingTask.waitingForInput) {
-      logger.info(`Task ${run.id} has existing context, continuing conversation`, 'CursorAgent');
-      return this.sendMessage(run.id, run.prompt, onMessage, onError, onComplete);
+    const cursorPath = this.findCursorAgent();
+    if (!cursorPath) {
+      onError(new Error('cursor-agent not found. Please install it with: curl https://cursor.com/install | bash'));
+      return;
     }
 
     try {
@@ -332,17 +150,155 @@ ${prompt}`;
         this.database.createMessage(userMessage);
       }
 
-      logger.info(`Starting Cursor agent for task ${run.id}`, 'CursorAgent');
+      const worktreeCwd = this.resolveWorktreePath(run);
+      
+      CursorAgent.totalSpawnCount++;
+      logger.info(`=== SPAWN #${CursorAgent.totalSpawnCount} ===`, 'CursorAgent', {
+        runId: run.id,
+        cwd: worktreeCwd,
+      });
 
-      // Resolve and verify worktree
-      const worktreePath = this.resolveWorktreePath(run);
-      this.verifyWorktree(worktreePath);
-      
-      // Spawn the cursor process
-      this.spawnCursorProcess(run.id, run.prompt, worktreePath, onMessage, onError, onComplete);
-      
+      // Build command args: -p for print mode, --output-format=stream-json for JSON output
+      const isCursorAgent = cursorPath.includes('cursor-agent');
+      const args = isCursorAgent 
+        ? ['-p', '--output-format=stream-json']
+        : ['agent', '-p', '--output-format=stream-json'];
+
+      logger.info(`Running: ${cursorPath} ${args.join(' ')}`, 'CursorAgent');
+
+      const childProcess = spawn(cursorPath, args, {
+        cwd: worktreeCwd,
+        stdio: ['pipe', 'pipe', 'pipe'],  // pipe stdin so we can write prompt
+        env: process.env,
+      });
+
+      // Initialize task state
+      const taskState: TaskState = {
+        process: childProcess,
+        worktreePath: worktreeCwd,
+        sessionId: null,
+        waitingForInput: false,
+      };
+      this.runningTasks.set(run.id, taskState);
+
+      // Write prompt to stdin and close it
+      if (childProcess.stdin) {
+        childProcess.stdin.write(run.prompt);
+        childProcess.stdin.end();
+        logger.info(`Sent prompt via stdin (${run.prompt.length} chars)`, 'CursorAgent');
+      }
+
+      let assistantContent = '';
+      let assistantMessageId: string | null = null;
+      let lastSaveTime = Date.now();
+      const SAVE_INTERVAL_MS = 200;
+
+      // Process stdout as JSON lines
+      let buffer = '';
+      childProcess.stdout?.on('data', (data: Buffer) => {
+        buffer += data.toString();
+        
+        // Process complete lines
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';  // Keep incomplete line in buffer
+        
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          
+          try {
+            const json: CursorJsonMessage = JSON.parse(line);
+            
+            // Extract session_id if present
+            if (json.session_id && !taskState.sessionId) {
+              taskState.sessionId = json.session_id;
+              logger.info(`Got session_id: ${json.session_id}`, 'CursorAgent');
+            }
+            
+            // Handle different message types
+            if (json.type === 'assistant' && json.message?.content) {
+              for (const item of json.message.content) {
+                if (item.type === 'text' && item.text) {
+                  assistantContent += item.text;
+                  onMessage(item.text);  // Stream to UI
+                }
+              }
+              
+              // Save to database periodically
+              const now = Date.now();
+              if (!assistantMessageId) {
+                assistantMessageId = crypto.randomUUID();
+                const assistantMessage: Message = {
+                  id: assistantMessageId,
+                  runId: run.id,
+                  role: 'assistant',
+                  content: assistantContent,
+                  createdAt: new Date(),
+                };
+                this.database.createMessage(assistantMessage);
+                lastSaveTime = now;
+              } else if (now - lastSaveTime > SAVE_INTERVAL_MS) {
+                this.database.updateMessage(assistantMessageId, assistantContent);
+                lastSaveTime = now;
+              }
+            } else if (json.type === 'thinking' && json.text) {
+              // Could show thinking indicator
+              logger.debug(`Thinking: ${json.text.substring(0, 50)}...`, 'CursorAgent');
+            } else if (json.type === 'tool_call') {
+              logger.debug(`Tool call: ${json.subtype}`, 'CursorAgent');
+            } else if (json.type === 'system') {
+              if (json.model) {
+                logger.info(`Using model: ${json.model}`, 'CursorAgent');
+              }
+            }
+          } catch (e) {
+            // Not JSON, might be plain text output
+            logger.debug(`Non-JSON output: ${line.substring(0, 100)}`, 'CursorAgent');
+          }
+        }
+      });
+
+      // Capture stderr
+      childProcess.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        logger.warn(`stderr: ${text}`, 'CursorAgent');
+      });
+
+      childProcess.on('close', (exitCode) => {
+        logger.info(`Process exited`, 'CursorAgent', { exitCode, sessionId: taskState.sessionId });
+
+        // Final save
+        if (assistantMessageId && assistantContent.trim()) {
+          this.database.updateMessage(assistantMessageId, assistantContent.trim());
+        } else if (!assistantMessageId && assistantContent.trim()) {
+          const assistantMessage: Message = {
+            id: crypto.randomUUID(),
+            runId: run.id,
+            role: 'assistant',
+            content: assistantContent.trim(),
+            createdAt: new Date(),
+          };
+          this.database.createMessage(assistantMessage);
+        }
+
+        taskState.process = null;
+        taskState.waitingForInput = true;
+
+        if (exitCode === 0) {
+          onComplete();
+        } else {
+          this.runningTasks.delete(run.id);
+          onError(new Error(`cursor-agent exited with code ${exitCode}`));
+        }
+      });
+
+      childProcess.on('error', (error) => {
+        logger.error(`Process error`, 'CursorAgent', { error });
+        this.runningTasks.delete(run.id);
+        onError(error);
+      });
+
     } catch (error: any) {
-      logger.error(`Error starting Cursor agent for task ${run.id}`, 'CursorAgent', { error });
+      logger.error(`Error starting cursor-agent`, 'CursorAgent', { error });
       this.runningTasks.delete(run.id);
       onError(error instanceof Error ? error : new Error(String(error)));
     }
@@ -355,7 +311,22 @@ ${prompt}`;
     onError: (error: Error) => void,
     onComplete: () => void
   ): Promise<void> {
-    // Save user message to database
+    const existingTask = this.runningTasks.get(runId);
+    
+    logger.info(`sendMessage called`, 'CursorAgent', {
+      runId,
+      hasExistingTask: !!existingTask,
+      processRunning: existingTask?.process !== null,
+      waitingForInput: existingTask?.waitingForInput,
+      hasSessionId: !!existingTask?.sessionId,
+    });
+    
+    if (existingTask && existingTask.process !== null) {
+      logger.warn(`Task ${runId} already has a running process, ignoring sendMessage`, 'CursorAgent');
+      return;
+    }
+    
+    // Save user message
     const userMessage: Message = {
       id: crypto.randomUUID(),
       runId: runId,
@@ -365,36 +336,127 @@ ${prompt}`;
     };
     this.database.createMessage(userMessage);
 
-    const existingTask = this.runningTasks.get(runId);
-    
-    if (existingTask && existingTask.waitingForInput) {
-      // We have context from a previous run - spawn new process in same worktree
-      logger.info(`Continuing conversation for task ${runId}`, 'CursorAgent');
-      
-      try {
-        // Update callbacks for this continuation
-        existingTask.onMessage = onMessage;
-        existingTask.onError = onError;
-        existingTask.onComplete = onComplete;
-        existingTask.waitingForInput = false;
-        
-        // Spawn new cursor process in the same worktree
-        this.spawnCursorProcess(
-          runId,
-          message,
-          existingTask.worktreePath,
-          onMessage,
-          onError,
-          onComplete
-        );
-        
-      } catch (error: any) {
-        logger.error(`Error continuing Cursor agent for task ${runId}`, 'CursorAgent', { error });
-        this.runningTasks.delete(runId);
-        onError(error instanceof Error ? error : new Error(String(error)));
+    if (existingTask && existingTask.waitingForInput && existingTask.sessionId) {
+      // Resume the session!
+      const cursorPath = this.findCursorAgent();
+      if (!cursorPath) {
+        onError(new Error('cursor-agent not found'));
+        return;
       }
+
+      CursorAgent.totalSpawnCount++;
+      logger.info(`=== SPAWN #${CursorAgent.totalSpawnCount} (resume) ===`, 'CursorAgent', {
+        runId,
+        sessionId: existingTask.sessionId,
+      });
+
+      const isCursorAgent = cursorPath.includes('cursor-agent');
+      const args = isCursorAgent 
+        ? ['-p', '--output-format=stream-json', '--resume', existingTask.sessionId]
+        : ['agent', '-p', '--output-format=stream-json', '--resume', existingTask.sessionId];
+
+      logger.info(`Running: ${cursorPath} ${args.join(' ')}`, 'CursorAgent');
+
+      const childProcess = spawn(cursorPath, args, {
+        cwd: existingTask.worktreePath,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: process.env,
+      });
+
+      existingTask.process = childProcess;
+      existingTask.waitingForInput = false;
+
+      // Write message to stdin and close
+      if (childProcess.stdin) {
+        childProcess.stdin.write(message);
+        childProcess.stdin.end();
+      }
+
+      let assistantContent = '';
+      let assistantMessageId: string | null = null;
+      let lastSaveTime = Date.now();
+      const SAVE_INTERVAL_MS = 200;
+
+      let buffer = '';
+      childProcess.stdout?.on('data', (data: Buffer) => {
+        buffer += data.toString();
+        
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          
+          try {
+            const json: CursorJsonMessage = JSON.parse(line);
+            
+            if (json.type === 'assistant' && json.message?.content) {
+              for (const item of json.message.content) {
+                if (item.type === 'text' && item.text) {
+                  assistantContent += item.text;
+                  onMessage(item.text);
+                }
+              }
+              
+              const now = Date.now();
+              if (!assistantMessageId) {
+                assistantMessageId = crypto.randomUUID();
+                const assistantMessage: Message = {
+                  id: assistantMessageId,
+                  runId: runId,
+                  role: 'assistant',
+                  content: assistantContent,
+                  createdAt: new Date(),
+                };
+                this.database.createMessage(assistantMessage);
+                lastSaveTime = now;
+              } else if (now - lastSaveTime > SAVE_INTERVAL_MS) {
+                this.database.updateMessage(assistantMessageId, assistantContent);
+                lastSaveTime = now;
+              }
+            }
+          } catch {
+            // Non-JSON output
+          }
+        }
+      });
+
+      childProcess.stderr?.on('data', (data: Buffer) => {
+        logger.warn(`stderr: ${data.toString()}`, 'CursorAgent');
+      });
+
+      childProcess.on('close', (exitCode) => {
+        if (assistantMessageId && assistantContent.trim()) {
+          this.database.updateMessage(assistantMessageId, assistantContent.trim());
+        } else if (!assistantMessageId && assistantContent.trim()) {
+          const assistantMessage: Message = {
+            id: crypto.randomUUID(),
+            runId: runId,
+            role: 'assistant',
+            content: assistantContent.trim(),
+            createdAt: new Date(),
+          };
+          this.database.createMessage(assistantMessage);
+        }
+
+        existingTask.process = null;
+        existingTask.waitingForInput = true;
+
+        if (exitCode === 0) {
+          onComplete();
+        } else {
+          this.runningTasks.delete(runId);
+          onError(new Error(`cursor-agent exited with code ${exitCode}`));
+        }
+      });
+
+      childProcess.on('error', (error) => {
+        this.runningTasks.delete(runId);
+        onError(error);
+      });
+
     } else {
-      // No existing task context - get run from database and start fresh
+      // No session to resume, start fresh
       const run = this.database.getRun(runId);
       if (!run) {
         onError(new Error(`Run ${runId} not found`));
@@ -408,18 +470,16 @@ ${prompt}`;
 
   async stopTask(runId: string): Promise<void> {
     const task = this.runningTasks.get(runId);
-    if (task) {
-      if (task.process) {
-        task.process.kill('SIGTERM');
-      }
+    if (task && task.process) {
+      task.process.kill();
       this.runningTasks.delete(runId);
-      logger.info(`Stopped Cursor agent for task ${runId}`, 'CursorAgent');
+      logger.info(`Stopped cursor-agent`, 'CursorAgent', { runId });
     }
   }
 
   isRunning(runId: string): boolean {
     const task = this.runningTasks.get(runId);
-    return task !== undefined && task.process !== null && !task.waitingForInput;
+    return task !== undefined && task.process !== null;
   }
 
   isWaitingForInput(runId: string): boolean {
