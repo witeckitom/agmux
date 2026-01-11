@@ -1,11 +1,7 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { logger, LogEntry } from '../utils/logger.js';
 import { useInput } from 'ink';
-
-interface LogViewProps {
-  height: number;
-}
 
 function formatLogLevel(level: LogEntry['level']): string {
   const levelMap: Record<LogEntry['level'], string> = {
@@ -27,67 +23,130 @@ function getLogColor(level: LogEntry['level']): string {
   return colorMap[level] || 'white';
 }
 
-export function LogView({ height }: LogViewProps) {
+export function LogView() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [filterLevel, setFilterLevel] = useState<LogEntry['level'] | 'all'>('all');
 
+  // Get terminal dimensions for full-screen overlay
+  const terminalHeight = useMemo(() => (process.stdout.rows || 24) - 1, []);
+  const terminalWidth = useMemo(() => process.stdout.columns || 80, []);
+  
+  // Calculate available height for logs (subtract header and footer)
+  const headerHeight = 3; // Title bar
+  const footerHeight = 2; // Help text
+  const logsHeight = terminalHeight - headerHeight - footerHeight;
+
+  // Load and auto-refresh logs
   useEffect(() => {
-    // Load logs once when the view is opened
-    // Don't subscribe to updates - keep the view static
-    setLogs(logger.getLogs(200)); // Show last 200 logs
-  }, []); // Empty dependency array means this runs once on mount
+    const loadLogs = () => setLogs(logger.getLogs(500)); // Show last 500 logs
+    loadLogs();
+    
+    // Refresh logs every second while view is open
+    const interval = setInterval(loadLogs, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-  // Handle keyboard input for scrolling logs
+  // Filter logs based on selected level
+  const filteredLogs = useMemo(() => {
+    if (filterLevel === 'all') return logs;
+    return logs.filter(log => log.level === filterLevel);
+  }, [logs, filterLevel]);
+
+  // Handle keyboard input for scrolling and filtering
   useInput((input, key) => {
-    if (key.upArrow) {
-      setScrollOffset(prev => Math.min(prev + 1, Math.max(0, logs.length - height)));
-    } else if (key.downArrow) {
+    const maxOffset = Math.max(0, filteredLogs.length - logsHeight);
+    
+    if (key.upArrow || input === 'k') {
+      setScrollOffset(prev => Math.min(prev + 1, maxOffset));
+    } else if (key.downArrow || input === 'j') {
       setScrollOffset(prev => Math.max(0, prev - 1));
     } else if (key.pageUp) {
-      setScrollOffset(prev => Math.min(prev + height, Math.max(0, logs.length - height)));
+      setScrollOffset(prev => Math.min(prev + logsHeight, maxOffset));
     } else if (key.pageDown) {
-      setScrollOffset(prev => Math.max(0, prev - height));
+      setScrollOffset(prev => Math.max(0, prev - logsHeight));
+    } else if (input === 'g') {
+      // Go to top (oldest logs)
+      setScrollOffset(maxOffset);
+    } else if (input === 'G') {
+      // Go to bottom (newest logs)
+      setScrollOffset(0);
+    } else if (input === '1') {
+      setFilterLevel('debug');
+      setScrollOffset(0);
+    } else if (input === '2') {
+      setFilterLevel('info');
+      setScrollOffset(0);
+    } else if (input === '3') {
+      setFilterLevel('warn');
+      setScrollOffset(0);
+    } else if (input === '4') {
+      setFilterLevel('error');
+      setScrollOffset(0);
+    } else if (input === '0') {
+      setFilterLevel('all');
+      setScrollOffset(0);
     }
   });
 
   // Calculate visible logs based on scroll offset
   const visibleLogs = useMemo(() => {
-    if (logs.length === 0) {
-      return [];
-    }
+    if (filteredLogs.length === 0) return [];
     if (scrollOffset === 0) {
-      // Show most recent logs
-      return logs.slice(-height);
+      return filteredLogs.slice(-logsHeight);
     }
-    const start = Math.max(0, logs.length - height - scrollOffset);
-    const end = logs.length - scrollOffset;
-    return logs.slice(start, end);
-  }, [logs, height, scrollOffset]);
+    const start = Math.max(0, filteredLogs.length - logsHeight - scrollOffset);
+    const end = filteredLogs.length - scrollOffset;
+    return filteredLogs.slice(start, end);
+  }, [filteredLogs, logsHeight, scrollOffset]);
 
-  const terminalWidth = useMemo(() => process.stdout.columns || 80, []);
+  // Calculate scroll position indicator
+  const scrollPercent = filteredLogs.length <= logsHeight 
+    ? 100 
+    : Math.round(((filteredLogs.length - scrollOffset) / filteredLogs.length) * 100);
 
   return (
     <Box
       width={terminalWidth}
-      borderStyle="single"
-      borderTop={true}
+      height={terminalHeight}
       flexDirection="column"
-      height={height}
+      borderStyle="double"
+      borderColor="cyan"
     >
-            <Box paddingX={1} borderBottom={true}>
-              <Text bold>
-                Application Logs ({logs.length} total) - Use ↑/↓ to scroll, 'Shift+L' to hide
-              </Text>
-            </Box>
+      {/* Header */}
+      <Box 
+        paddingX={2} 
+        borderBottom={true} 
+        borderStyle="single"
+        justifyContent="space-between"
+      >
+        <Box>
+          <Text bold color="cyan">📋 Application Logs</Text>
+          <Text dimColor> ({filteredLogs.length} entries</Text>
+          {filterLevel !== 'all' && (
+            <Text dimColor>, filtered: {filterLevel}</Text>
+          )}
+          <Text dimColor>)</Text>
+        </Box>
+        <Box>
+          <Text dimColor>
+            {scrollPercent}% 
+            {scrollOffset > 0 && ` ↑${scrollOffset}`}
+          </Text>
+        </Box>
+      </Box>
+
+      {/* Log entries */}
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
         {visibleLogs.length === 0 ? (
-          <Box padding={1}>
-            <Text dimColor>No logs yet</Text>
+          <Box padding={2} justifyContent="center">
+            <Text dimColor>
+              {filterLevel === 'all' ? 'No logs yet' : `No ${filterLevel} logs`}
+            </Text>
           </Box>
         ) : (
           visibleLogs.map((log, index) => {
             try {
-              // Safely extract log properties with defaults
               const timestamp = log?.timestamp;
               const timeStr = timestamp instanceof Date 
                 ? timestamp.toLocaleTimeString() 
@@ -97,7 +156,6 @@ export function LogView({ height }: LogViewProps) {
               const levelStr = formatLogLevel(level);
               const color = getLogColor(level);
               
-              // Safely extract message - handle various types
               let message = '';
               if (typeof log?.message === 'string') {
                 message = log.message;
@@ -107,11 +165,9 @@ export function LogView({ height }: LogViewProps) {
               
               const context = typeof log?.context === 'string' ? log.context : '';
 
-              // Safely stringify metadata, handling circular references and non-serializable values
               let metadataStr = '';
               if (log?.metadata && typeof log.metadata === 'object') {
                 try {
-                  // Filter out functions, undefined, and circular references
                   const safeMetadata = JSON.parse(JSON.stringify(log.metadata, (key, value) => {
                     if (typeof value === 'function') return '[Function]';
                     if (value === undefined) return '[undefined]';
@@ -121,8 +177,7 @@ export function LogView({ height }: LogViewProps) {
                   if (Object.keys(safeMetadata).length > 0) {
                     metadataStr = ' ' + JSON.stringify(safeMetadata);
                   }
-                } catch (metaError) {
-                  // If metadata can't be stringified, just skip it
+                } catch {
                   metadataStr = '';
                 }
               }
@@ -140,7 +195,7 @@ export function LogView({ height }: LogViewProps) {
                     {context && (
                       <>
                         {' '}
-                        <Text dimColor>[{context}]</Text>
+                        <Text color="magenta">[{context}]</Text>
                       </>
                     )}
                     {' '}
@@ -152,20 +207,41 @@ export function LogView({ height }: LogViewProps) {
                 </Box>
               );
             } catch (error: any) {
-              // Fallback if log entry is malformed - show minimal info
               const logId = log?.id || `log-error-${index}`;
-              const errorMsg = error?.message || 'Unknown error';
               return (
                 <Box key={logId} paddingX={1}>
                   <Text color="red">
-                    [ERR] Error displaying log entry: {errorMsg}
-                    {log?.message && ` (message: ${String(log.message).substring(0, 50)})`}
+                    [ERR] Error displaying log entry
                   </Text>
                 </Box>
               );
             }
           })
         )}
+      </Box>
+
+      {/* Footer with help */}
+      <Box 
+        paddingX={2} 
+        borderTop={true} 
+        borderStyle="single"
+        justifyContent="space-between"
+      >
+        <Box>
+          <Text dimColor>
+            <Text bold>Navigation:</Text> j/k or ↑/↓ scroll | PgUp/PgDn page | g/G top/bottom
+          </Text>
+        </Box>
+        <Box>
+          <Text dimColor>
+            <Text bold>Filter:</Text> 0=all 1=
+            <Text color="gray">dbg</Text> 2=
+            <Text color="cyan">inf</Text> 3=
+            <Text color="yellow">wrn</Text> 4=
+            <Text color="red">err</Text>
+            {' '}| <Text bold>L</Text>=close
+          </Text>
+        </Box>
       </Box>
     </Box>
   );

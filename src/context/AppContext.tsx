@@ -406,27 +406,16 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
       }
 
       try {
-        // Update prompt with new message and clear readyToAct
-        database.updateRun(runId, {
-          prompt: message,
-          readyToAct: false,
-          status: 'running',
-        });
-
-        // Refresh to get updated run
+        // Use TaskExecutor's sendMessageToTask which handles the persistent conversation
+        // This will either continue an existing agent session or start a new one
+        await taskExecutor.sendMessageToTask(runId, message);
         refreshRuns();
-        const updatedRun = database.getRun(runId);
-        if (updatedRun) {
-          // Restart the agent with the new message
-          await taskExecutor.startTask(runId);
-          refreshRuns();
-        }
       } catch (error: any) {
         logger.error(`Failed to send message to task ${runId}`, 'App', { error });
         refreshRuns();
       }
     },
-    [state.runs, database, refreshRuns, taskExecutor]
+    [state.runs, refreshRuns, taskExecutor]
   );
 
   const mergeTaskBranch = useCallback(

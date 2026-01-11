@@ -89,13 +89,12 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
   const layoutHeights = useMemo(() => {
     const topBarHeight = 5; // TopBar with ASCII logo
     const commandModeHeight = commandMode ? 3 : 0;
-    const logViewHeight = logsVisible ? 8 : 0;
     const mainViewHeight = Math.max(
       1,
-      terminalDimensions.height - topBarHeight - commandModeHeight - logViewHeight
+      terminalDimensions.height - topBarHeight - commandModeHeight
     );
-    return { topBarHeight, commandModeHeight, logViewHeight, mainViewHeight };
-  }, [terminalDimensions.height, commandMode, logsVisible]);
+    return { topBarHeight, commandModeHeight, mainViewHeight };
+  }, [terminalDimensions.height, commandMode]);
 
         // If merge prompt is showing, render it instead of main content
         if (mergePrompt) {
@@ -135,6 +134,16 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
           );
         }
 
+        // If logs are visible, show full-screen log viewer overlay
+        if (logsVisible) {
+          return (
+            <Box flexDirection="column" height={terminalDimensions.height}>
+              <KeyboardHandler />
+              <LogView />
+            </Box>
+          );
+        }
+
   // Show splash screen on initial load
   if (showSplash) {
     return (
@@ -153,7 +162,6 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
       <TopBar />
       <CommandMode isCommandMode={commandMode} />
       <MainView />
-      {logsVisible && <LogView height={layoutHeights.logViewHeight} />}
     </Box>
   );
 });

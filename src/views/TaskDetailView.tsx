@@ -186,123 +186,131 @@ export function TaskDetailView() {
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
   const [fileDiff, setFileDiff] = useState<string>('');
 
+  // Load messages when selected run ID changes (initial load)
   useEffect(() => {
-    // Load messages when selected run changes
-    if (selectedRun) {
-      const runMessages = database.getMessagesByRunId(selectedRun.id);
+    if (selectedRunId) {
+      const runMessages = database.getMessagesByRunId(selectedRunId);
       setMessages(runMessages);
     } else {
       setMessages([]);
     }
-  }, [selectedRun, database]);
+  }, [selectedRunId, database]);
 
+  // Poll for message updates while task is running (for streaming chat)
+  // Use a shorter interval (300ms) to make streaming feel more responsive
   useEffect(() => {
-    // Load changed files when selected run changes
-    // Always try to get changed files - getChangedFiles will handle empty/temp paths by searching for worktree
-    if (selectedRun) {
-      try {
-        const files = getChangedFiles(selectedRun.worktreePath || '', selectedRun.id);
-        setChangedFiles(files);
-        if (files.length > 0 && selectedFileIndex < files.length) {
-          // For getFileDiff, we need the actual worktree path
-          // getChangedFiles already found it, so we can use the same logic
-          // But we need to pass the found path to getFileDiff
-          // Since getChangedFiles modifies worktreePath internally, we need to find it again
-          let worktreePathForDiff = selectedRun.worktreePath || '';
-          if (!worktreePathForDiff || worktreePathForDiff.startsWith('/tmp/') || worktreePathForDiff.trim() === '') {
-            // Find worktree by run ID (same logic as getChangedFiles)
-            const projectRoot = process.cwd();
-            const worktreesDir = join(projectRoot, '.worktrees');
-            if (existsSync(worktreesDir)) {
-              try {
-                const worktreeDirs = readdirSync(worktreesDir, { withFileTypes: true })
-                  .filter(dirent => dirent.isDirectory())
-                  .map(dirent => join(worktreesDir, dirent.name));
-                
-                const runIdPrefix = selectedRun.id.slice(0, 8);
-                for (const dir of worktreeDirs) {
-                  const dirName = dir.split('/').pop() || '';
-                  if (dirName.includes(runIdPrefix)) {
-                    worktreePathForDiff = dir;
-                    break;
-                  }
-                }
-              } catch (error) {
-                // Ignore errors
+    if (!selectedRunId || !selectedRun || selectedRun.status !== 'running') {
+      return;
+    }
+
+    // Poll every 300ms while task is running to get streaming messages
+    const pollInterval = setInterval(() => {
+      const runMessages = database.getMessagesByRunId(selectedRunId);
+      setMessages(prevMessages => {
+        // Only update if messages have changed (compare by length and last message content)
+        const lastPrev = prevMessages[prevMessages.length - 1];
+        const lastNew = runMessages[runMessages.length - 1];
+        
+        if (prevMessages.length !== runMessages.length) {
+          return runMessages;
+        }
+        if (lastPrev && lastNew && lastPrev.content !== lastNew.content) {
+          return runMessages;
+        }
+        return prevMessages; // No change, keep same reference
+      });
+    }, 300);
+
+    return () => clearInterval(pollInterval);
+  }, [selectedRunId, selectedRun?.status, database]);
+
+  // Helper function to resolve worktree path
+  const resolveWorktreePath = useMemo(() => {
+    return (runId: string, worktreePath: string | null): string => {
+      let resolvedPath = worktreePath || '';
+      if (!resolvedPath || resolvedPath.startsWith('/tmp/') || resolvedPath.trim() === '') {
+        const projectRoot = process.cwd();
+        const worktreesDir = join(projectRoot, '.worktrees');
+        if (existsSync(worktreesDir)) {
+          try {
+            const worktreeDirs = readdirSync(worktreesDir, { withFileTypes: true })
+              .filter(dirent => dirent.isDirectory())
+              .map(dirent => join(worktreesDir, dirent.name));
+            
+            const runIdPrefix = runId.slice(0, 8);
+            for (const dir of worktreeDirs) {
+              const dirName = dir.split('/').pop() || '';
+              if (dirName.includes(runIdPrefix)) {
+                resolvedPath = dir;
+                break;
               }
             }
+          } catch {
+            // Ignore errors
           }
-          
-          if (worktreePathForDiff && !worktreePathForDiff.startsWith('/tmp/') && worktreePathForDiff.trim() !== '') {
-            const diff = getFileDiff(worktreePathForDiff, files[selectedFileIndex].path, selectedRun.id);
-            setFileDiff(diff);
-          } else {
-            setFileDiff('');
-          }
-        } else {
-          setFileDiff('');
         }
-      } catch (error) {
-        setChangedFiles([]);
-        setFileDiff('');
       }
+      return resolvedPath;
+    };
+  }, []);
+
+  // Helper to load changed files and diff
+  const loadChangedFiles = useMemo(() => {
+    return (run: Run, fileIndex: number) => {
+      try {
+        const files = getChangedFiles(run.worktreePath || '', run.id);
+        const worktreePath = resolveWorktreePath(run.id, run.worktreePath);
+        
+        let diff = '';
+        if (files.length > 0 && fileIndex < files.length && worktreePath && !worktreePath.startsWith('/tmp/')) {
+          diff = getFileDiff(worktreePath, files[fileIndex].path, run.id);
+        }
+        
+        return { files, diff };
+      } catch {
+        return { files: [], diff: '' };
+      }
+    };
+  }, [resolveWorktreePath]);
+
+  // Load changed files when selected run or file index changes
+  useEffect(() => {
+    if (selectedRun) {
+      const { files, diff } = loadChangedFiles(selectedRun, selectedFileIndex);
+      setChangedFiles(files);
+      setFileDiff(diff);
     } else {
       setChangedFiles([]);
       setFileDiff('');
     }
-  }, [selectedRun, selectedFileIndex]);
+  }, [selectedRun, selectedFileIndex, loadChangedFiles]);
 
-  // Refresh messages and changed files reactively when selected run changes
-  // This will be triggered by refreshRuns() calls after database operations
+  // Poll for changed files while task is running
   useEffect(() => {
-    if (selectedRun) {
-      const runMessages = database.getMessagesByRunId(selectedRun.id);
-      setMessages(runMessages);
-
-      // Refresh changed files (always try, even if worktreePath is empty)
-      try {
-        const files = getChangedFiles(selectedRun.worktreePath || '', selectedRun.id);
-        setChangedFiles(files);
-        if (files.length > 0 && selectedFileIndex < files.length) {
-          // Find the actual worktree path for getFileDiff
-          let worktreePathForDiff = selectedRun.worktreePath || '';
-          if (!worktreePathForDiff || worktreePathForDiff.startsWith('/tmp/') || worktreePathForDiff.trim() === '') {
-            const projectRoot = process.cwd();
-            const worktreesDir = join(projectRoot, '.worktrees');
-            if (existsSync(worktreesDir)) {
-              try {
-                const worktreeDirs = readdirSync(worktreesDir, { withFileTypes: true })
-                  .filter(dirent => dirent.isDirectory())
-                  .map(dirent => join(worktreesDir, dirent.name));
-                
-                const runIdPrefix = selectedRun.id.slice(0, 8);
-                for (const dir of worktreeDirs) {
-                  const dirName = dir.split('/').pop() || '';
-                  if (dirName.includes(runIdPrefix)) {
-                    worktreePathForDiff = dir;
-                    break;
-                  }
-                }
-              } catch (error) {
-                // Ignore errors
-              }
-            }
-          }
-          
-          if (worktreePathForDiff && !worktreePathForDiff.startsWith('/tmp/') && worktreePathForDiff.trim() !== '') {
-            const diff = getFileDiff(worktreePathForDiff, files[selectedFileIndex].path, selectedRun.id);
-            setFileDiff(diff);
-          } else {
-            setFileDiff('');
-          }
-        } else {
-          setFileDiff('');
-        }
-      } catch {
-        // Ignore errors
-      }
+    if (!selectedRun || selectedRun.status !== 'running') {
+      return;
     }
-  }, [selectedRun, database, selectedFileIndex]);
+
+    // Poll every 2 seconds for file changes while task is running
+    const pollInterval = setInterval(() => {
+      const { files, diff } = loadChangedFiles(selectedRun, selectedFileIndex);
+      setChangedFiles(prevFiles => {
+        // Only update if files have changed
+        if (prevFiles.length !== files.length) {
+          return files;
+        }
+        const prevPaths = prevFiles.map(f => f.path).join(',');
+        const newPaths = files.map(f => f.path).join(',');
+        if (prevPaths !== newPaths) {
+          return files;
+        }
+        return prevFiles;
+      });
+      setFileDiff(diff);
+    }, 2000);
+
+    return () => clearInterval(pollInterval);
+  }, [selectedRun?.id, selectedRun?.status, selectedFileIndex, loadChangedFiles]);
 
   // Handle input for chat and file navigation
   useInput((input, key) => {
