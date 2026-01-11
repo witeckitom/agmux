@@ -1,14 +1,14 @@
 import React from 'react';
-import { Box } from 'ink';
+import { Box, useStdout } from 'ink';
 import { ViewRouter } from './ViewRouter.js';
 
-interface MainViewProps {
-  height: number;
-}
+// No explicit height - use flexGrow to fill space
+export const MainView = React.memo(function MainView() {
+  const { stdout } = useStdout();
+  const width = stdout?.columns || 80;
 
-export const MainView = React.memo(function MainView({ height }: MainViewProps) {
   return (
-    <Box flexDirection="column" height={height} flexGrow={1}>
+    <Box flexDirection="column" flexGrow={1} width={width}>
       <ViewRouter />
     </Box>
   );

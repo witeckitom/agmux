@@ -3,8 +3,9 @@ import { Box, useApp as useInkApp } from 'ink';
 import { AppProvider, useApp } from '../context/AppContext.js';
 import { SettingsProvider } from '../context/SettingsContext.js';
 import { InputProvider } from '../context/InputContext.js';
-import { TopBar } from '../components/TopBar.js';
+import { TopBar, updateTopBarStore } from '../components/TopBar.js';
 import { MainView } from '../components/MainView.js';
+import { setCurrentViewExternal } from '../components/ViewRouter.js';
 import { CommandMode } from '../components/CommandMode.js';
 import { LogView } from '../components/LogView.js';
 import { ConfirmationDialog } from '../components/ConfirmationDialog.js';
@@ -26,10 +27,11 @@ interface AppContentProps {
 
 // Memoize AppContent to prevent re-renders when CommandMode updates
 const AppContent = React.memo(function AppContent({ database }: AppContentProps) {
+
   const { exit } = useInkApp();
   const appContext = useApp();
   const [showSplash, setShowSplash] = useState(true);
-  
+
   // Only read what we need - don't destructure state to avoid subscribing to all changes
   const commandMode = appContext.state.commandMode;
   const logsVisible = appContext.state.logsVisible;
@@ -37,6 +39,29 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
   const confirmation = appContext.state.confirmation;
   const currentView = appContext.state.currentView;
   const runsLength = appContext.state.runs.length;
+  
+  // Sync currentView to external store for ViewRouter
+  // This allows ViewRouter to not depend on the full context
+  useEffect(() => {
+    setCurrentViewExternal(currentView);
+  }, [currentView]);
+  
+  // Calculate running count for TopBar
+  const runningCount = useMemo(() => 
+    appContext.state.runs.filter(r => r.status === 'running').length,
+    [appContext.state.runs]
+  );
+  
+  // Sync TopBar data to external store
+  // This allows TopBar to not depend on the full context
+  useEffect(() => {
+    updateTopBarStore({
+      projectRoot: appContext.state.projectRoot,
+      currentView,
+      runningCount,
+      commandMode,
+    });
+  }, [appContext.state.projectRoot, currentView, runningCount, commandMode]);
 
   // Initial load only - everything else is reactive
   useEffect(() => {
@@ -97,11 +122,7 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
         // If confirmation dialog is showing, render it instead of main content
         if (confirmation) {
           return (
-            <Box 
-              flexDirection="column" 
-              width={terminalDimensions.width}
-              height={terminalDimensions.height}
-            >
+            <Box flexDirection="column">
               <KeyboardHandler />
               <ConfirmationDialog
                 message={confirmation.message}
@@ -115,14 +136,10 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
   // Show splash screen on initial load
   if (showSplash) {
     return (
-      <Box 
-        flexDirection="column" 
-        width={terminalDimensions.width}
-        height={terminalDimensions.height}
-      >
-        <SplashScreen 
-          version={packageJson.version} 
-          onComplete={() => setShowSplash(false)} 
+      <Box flexDirection="column">
+        <SplashScreen
+          version={packageJson.version}
+          onComplete={() => setShowSplash(false)}
         />
       </Box>
     );
@@ -133,7 +150,7 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
       <KeyboardHandler />
       <TopBar />
       <CommandMode isCommandMode={commandMode} />
-      <MainView height={layoutHeights.mainViewHeight} />
+      <MainView />
       {logsVisible && <LogView height={layoutHeights.logViewHeight} />}
     </Box>
   );

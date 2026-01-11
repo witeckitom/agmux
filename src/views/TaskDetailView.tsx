@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { useInput } from 'ink';
 import { useApp } from '../context/AppContext.js';
 import { logger } from '../utils/logger.js';
-import { Message } from '../models/types.js';
+import { Message, Run } from '../models/types.js';
 import { getChangedFiles, getFileDiff, ChangedFile } from '../utils/gitUtils.js';
 import { join } from 'path';
 import { existsSync, readdirSync } from 'fs';
@@ -26,6 +26,26 @@ function formatDuration(ms: number, showSeconds: boolean = true): string {
   return showSeconds ? `${seconds}s` : '< 1 min';
 }
 
+// Isolated timer component - only this component re-renders every second,
+// not the entire TaskDetailView. This prevents screen flashing.
+const IsolatedRunningTimer = React.memo(function IsolatedRunningTimer({ startTime, showSeconds = true }: { startTime: Date; showSeconds?: boolean }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const elapsed = now - startTime.getTime();
+  const formatted = formatDuration(elapsed, showSeconds).padEnd(12);
+  return <Text>{formatted}</Text>;
+}, (prevProps, nextProps) => {
+  return prevProps.startTime.getTime() === nextProps.startTime.getTime() &&
+         prevProps.showSeconds === nextProps.showSeconds;
+});
+
 function renderProgressBar(percent: number, width: number): string {
   const barWidth = Math.max(10, width - 2);
   const filled = Math.floor((percent / 100) * barWidth);
@@ -33,53 +53,138 @@ function renderProgressBar(percent: number, width: number): string {
   return '[' + '█'.repeat(Math.max(0, filled)) + '░'.repeat(Math.max(0, empty)) + ']';
 }
 
+// Memoized StatusBar component - contains the timer and isolates its updates
+// from the rest of the TaskDetailView. Only re-renders when its props change.
+interface StatusBarProps {
+  runId: string;
+  status: string;
+  createdAt: Date;
+  durationMs?: number | null;
+  progressPercent: number;
+  prompt?: string | null;
+}
+
+const StatusBar = React.memo(function StatusBar({
+  runId,
+  status,
+  createdAt,
+  durationMs,
+  progressPercent,
+  prompt,
+}: StatusBarProps) {
+  const statusColor = status === 'running' ? 'green' :
+                     status === 'completed' ? 'cyan' :
+                     status === 'failed' ? 'red' :
+                     status === 'cancelled' ? 'yellow' : 'gray';
+
+  const isCompleted = status === 'completed' || status === 'failed' || status === 'cancelled';
+  const showCompletedDuration = isCompleted && durationMs && durationMs > 0;
+
+  return (
+    <Box borderBottom={true} borderStyle="single" paddingX={1} paddingY={0}>
+      <Box flexDirection="column" width="100%">
+        <Box flexDirection="row" justifyContent="space-between">
+          <Box>
+            <Text bold color="cyan">Task:</Text>
+            <Text> {runId.slice(0, 8)}</Text>
+            <Text dimColor> | </Text>
+            <Text bold color={statusColor}>Status:</Text>
+            <Text color={statusColor}> {status}</Text>
+            {status === 'running' && (
+              <>
+                <Text dimColor> | </Text>
+                <Text bold>Running:</Text>
+                <Text> </Text>
+                <IsolatedRunningTimer startTime={createdAt} showSeconds={true} />
+              </>
+            )}
+            {showCompletedDuration && (
+              <>
+                <Text dimColor> | </Text>
+                <Text bold>Duration:</Text>
+                <Text> {formatDuration(durationMs!, true)}</Text>
+              </>
+            )}
+          </Box>
+          <Box>
+            <Text>
+              {renderProgressBar(progressPercent, 30)} <Text bold color="cyan">{progressPercent}%</Text>
+            </Text>
+          </Box>
+        </Box>
+        <Box>
+          <Text dimColor>{prompt || 'No prompt'}</Text>
+        </Box>
+      </Box>
+    </Box>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison - only re-render if status-related props change
+  // Note: createdAt is a Date object, so compare timestamps
+  return (
+    prevProps.runId === nextProps.runId &&
+    prevProps.status === nextProps.status &&
+    prevProps.createdAt.getTime() === nextProps.createdAt.getTime() &&
+    prevProps.durationMs === nextProps.durationMs &&
+    prevProps.progressPercent === nextProps.progressPercent &&
+    prevProps.prompt === nextProps.prompt
+  );
+});
+
 export function TaskDetailView() {
-  const { state, refreshRuns, database, sendMessageToTask } = useApp();
+  const { state, database, sendMessageToTask } = useApp();
+
+  // Memoize terminal width - used for column calculations
   const terminalWidth = useMemo(() => process.stdout.columns || 80, []);
-  const terminalHeight = useMemo(() => process.stdout.rows || 24, []);
-  
+
+  // Memoize layout calculations to prevent recalculation on every render
+  const layoutConfig = useMemo(() => {
+    const separatorWidth = 1;
+    const availableWidth = terminalWidth - separatorWidth * 2;
+    const columnWidth = Math.floor(availableWidth / 3);
+    return { columnWidth };
+  }, [terminalWidth]);
+
+  // Track previous run to avoid unnecessary re-renders
+  const prevRunRef = useRef<Run | null>(null);
+
+  // Extract only the values we need from context to minimize re-renders
+  const selectedRunId = state.selectedRunId;
+  const runs = state.runs;
+
   const selectedRun = useMemo(() => {
-    if (!state.selectedRunId) return null;
-    return state.runs.find(r => r.id === state.selectedRunId) || null;
-  }, [state.runs, state.selectedRunId]);
+    if (!selectedRunId) {
+      prevRunRef.current = null;
+      return null;
+    }
+    const newRun = runs.find(r => r.id === selectedRunId) || null;
+    const prevRun = prevRunRef.current;
+
+    // If the key properties haven't changed, return the previous reference
+    // to avoid triggering downstream effects
+    if (prevRun && newRun &&
+        prevRun.id === newRun.id &&
+        prevRun.status === newRun.status &&
+        prevRun.phase === newRun.phase &&
+        prevRun.progressPercent === newRun.progressPercent &&
+        prevRun.readyToAct === newRun.readyToAct &&
+        prevRun.durationMs === newRun.durationMs &&
+        prevRun.completedSubtasks === newRun.completedSubtasks &&
+        prevRun.totalSubtasks === newRun.totalSubtasks) {
+      return prevRun; // Return same reference to prevent re-renders
+    }
+
+    prevRunRef.current = newRun;
+    return newRun;
+  }, [runs, selectedRunId]);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const chatInputRef = useRef<string>('');
-  const [chatInputDisplay, setChatInputDisplay] = useState(0); // Counter to force re-render of input display
+  const [, setChatInputDisplay] = useState(0); // Counter to force re-render of input display (value unused)
   const [editingChat, setEditingChat] = useState(false);
   const [changedFiles, setChangedFiles] = useState<ChangedFile[]>([]);
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
   const [fileDiff, setFileDiff] = useState<string>('');
-  const [tick, setTick] = useState(0); // Lightweight tick for running time updates
-
-  // Lightweight tick - only runs when there's a running task, updates every second
-  useEffect(() => {
-    if (!selectedRun || selectedRun.status !== 'running') {
-      return;
-    }
-    
-    const interval = setInterval(() => {
-      setTick(prev => prev + 1); // Just increment to trigger re-render
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, [selectedRun?.status, selectedRun?.id]);
-
-  // Calculate running time reactively - uses tick to trigger updates for running tasks
-  const runningTime = useMemo(() => {
-    if (!selectedRun) return 0;
-    
-    if (selectedRun.status === 'running') {
-      // Calculate from current time - tick ensures this updates every second
-      const now = Date.now();
-      const startTime = selectedRun.createdAt.getTime();
-      return now - startTime;
-    } else if (selectedRun.status === 'completed' || selectedRun.status === 'failed' || selectedRun.status === 'cancelled') {
-      // Use stored duration from database
-      return selectedRun.durationMs ?? 0;
-    }
-    return 0;
-  }, [selectedRun, tick]); // Include tick in dependencies
 
   useEffect(() => {
     // Load messages when selected run changes
@@ -259,6 +364,9 @@ export function TaskDetailView() {
     }
   });
 
+  // Extract layout values for cleaner JSX
+  const { columnWidth } = layoutConfig;
+
   if (!selectedRun) {
     return (
       <Box padding={2} flexDirection="column">
@@ -267,61 +375,20 @@ export function TaskDetailView() {
     );
   }
 
-  // Calculate column widths (3 columns with 2 separators)
-  const separatorWidth = 1;
-  const availableWidth = terminalWidth - separatorWidth * 2;
-  const columnWidth = Math.floor(availableWidth / 3);
-
-  // Calculate available height (accounting for status bar)
-  const statusBarHeight = 3;
-  const availableHeight = terminalHeight - statusBarHeight;
-
-  const statusColor = selectedRun.status === 'running' ? 'green' : 
-                     selectedRun.status === 'completed' ? 'cyan' :
-                     selectedRun.status === 'failed' ? 'red' :
-                     selectedRun.status === 'cancelled' ? 'yellow' : 'gray';
-
   return (
-    <Box flexDirection="column" width={terminalWidth} height={terminalHeight}>
-      {/* Status bar at top */}
-      <Box borderBottom={true} borderStyle="single" paddingX={1} paddingY={0} height={statusBarHeight}>
-        <Box flexDirection="column" width="100%">
-          <Box flexDirection="row" justifyContent="space-between">
-            <Box>
-              <Text bold color="cyan">Task:</Text>
-              <Text> {selectedRun.id.slice(0, 8)}</Text>
-              <Text dimColor> | </Text>
-              <Text bold color={statusColor}>Status:</Text>
-              <Text color={statusColor}> {selectedRun.status}</Text>
-              {selectedRun.status === 'running' && runningTime > 0 && (
-                <>
-                  <Text dimColor> | </Text>
-                  <Text bold>Running:</Text>
-                  <Text> {formatDuration(runningTime, true)}</Text>
-                </>
-              )}
-              {(selectedRun.status === 'completed' || selectedRun.status === 'failed' || selectedRun.status === 'cancelled') && runningTime > 0 && (
-                <>
-                  <Text dimColor> | </Text>
-                  <Text bold>Duration:</Text>
-                  <Text> {formatDuration(runningTime, true)}</Text>
-                </>
-              )}
-            </Box>
-            <Box>
-              <Text>
-                {renderProgressBar(selectedRun.progressPercent, 30)} <Text bold color="cyan">{selectedRun.progressPercent}%</Text>
-              </Text>
-            </Box>
-          </Box>
-          <Box>
-            <Text dimColor>{selectedRun.prompt || 'No prompt'}</Text>
-          </Box>
-        </Box>
-      </Box>
+    <Box flexDirection="column">
+      {/* Status bar at top - memoized to isolate timer updates */}
+      <StatusBar
+        runId={selectedRun.id}
+        status={selectedRun.status}
+        createdAt={selectedRun.createdAt}
+        durationMs={selectedRun.durationMs}
+        progressPercent={selectedRun.progressPercent}
+        prompt={selectedRun.prompt}
+      />
 
       {/* Three column layout */}
-      <Box flexDirection="row" flexGrow={1} height={availableHeight}>
+      <Box flexDirection="row" flexGrow={1}>
               {/* Chat column */}
               <Box 
                 width={columnWidth} 

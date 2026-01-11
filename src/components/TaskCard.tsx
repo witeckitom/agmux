@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { Run } from '../models/types.js';
 
@@ -46,36 +46,24 @@ function formatDuration(ms: number, showSeconds: boolean = false): string {
   return '< 1 min';
 }
 
-export const TaskCard = React.memo(function TaskCard({ run, selected = false, width = 45 }: TaskCardProps) {
-  const [tick, setTick] = React.useState(0); // Lightweight tick for running time updates
-
-  // Lightweight tick - only runs when task is running, updates every minute (since we only show minutes)
-  React.useEffect(() => {
-    if (run.status !== 'running') {
-      return;
-    }
-    
+// Isolated timer component - only this component re-renders on interval,
+// not the entire TaskCard. This prevents screen flashing.
+function IsolatedCardTimer({ startTime, showSeconds = false }: { startTime: Date; showSeconds?: boolean }) {
+  const [now, setNow] = useState(Date.now());
+  
+  useEffect(() => {
+    // Update every minute since we only show minutes on kanban cards
     const interval = setInterval(() => {
-      setTick(prev => prev + 1); // Just increment to trigger re-render
-    }, 60000); // Update every minute since we only show minutes on kanban
-    
+      setNow(Date.now());
+    }, 60000);
     return () => clearInterval(interval);
-  }, [run.status, run.id]);
+  }, []);
+  
+  const elapsed = now - startTime.getTime();
+  return <Text>{formatDuration(elapsed, showSeconds)}</Text>;
+}
 
-  // Calculate running duration reactively - uses tick to trigger updates
-  const runningDuration = useMemo(() => {
-    if (run.status === 'running') {
-      // Calculate from current time - tick ensures this updates periodically
-      const now = Date.now();
-      const startTime = run.createdAt.getTime();
-      return now - startTime;
-    } else if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
-      // Use stored duration from database
-      return run.durationMs ?? 0;
-    }
-    return 0;
-  }, [run.status, run.createdAt, run.durationMs, tick]); // Include tick in dependencies
-
+export const TaskCard = React.memo(function TaskCard({ run, selected = false, width = 45 }: TaskCardProps) {
   const progressBarWidth = Math.max(8, width - 6); // Account for padding, minimum 8 chars
   const progressBar = renderProgressBar(run.progressPercent, progressBarWidth);
   const promptDisplay = run.prompt || 'No prompt';
@@ -86,8 +74,8 @@ export const TaskCard = React.memo(function TaskCard({ run, selected = false, wi
       : promptDisplay;
 
   const showProgress = run.status === 'running';
-  const showDuration = (run.status === 'running' && runningDuration > 0) || 
-                       ((run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') && runningDuration > 0);
+  const isCompleted = run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled';
+  const showCompletedDuration = isCompleted && run.durationMs && run.durationMs > 0;
 
   return (
     <Box
@@ -123,15 +111,16 @@ export const TaskCard = React.memo(function TaskCard({ run, selected = false, wi
         <Text dimColor>
           {run.completedSubtasks}/{run.totalSubtasks} tasks
           {run.readyToAct && ' | ⚠'}
-          {showDuration && (
+          {run.status === 'running' && (
             <>
               {' | '}
-              <Text>
-                {run.status === 'running' 
-                  ? formatDuration(runningDuration, false) // Minutes only for running tasks
-                  : formatDuration(runningDuration, true)  // Full format for completed tasks
-                }
-              </Text>
+              <IsolatedCardTimer startTime={run.createdAt} showSeconds={false} />
+            </>
+          )}
+          {showCompletedDuration && (
+            <>
+              {' | '}
+              <Text>{formatDuration(run.durationMs!, true)}</Text>
             </>
           )}
         </Text>

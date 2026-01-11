@@ -3,7 +3,7 @@ import React, { createContext, useContext, useRef, ReactNode, useCallback } from
 interface InputContextValue {
   getCommandInput: () => string;
   setCommandInput: (value: string) => void;
-  renderCommandInput: () => void;
+  renderCommandInput: (callback?: () => void) => void;
   commandInputVersion: number;
 }
 

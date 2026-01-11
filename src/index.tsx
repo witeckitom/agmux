@@ -18,15 +18,15 @@ try {
   // Directory might already exist
 }
 
-// Let Ink handle screen management - don't manually clear/restore
-// Ink will handle alternate screen buffer and cursor management
+// Enter alternate screen buffer for fullscreen app
+const enterAltScreenCommand = '\x1b[?1049h';
+const leaveAltScreenCommand = '\x1b[?1049l';
+// Enter alt screen, clear it, and move cursor to top-left
+process.stdout.write(enterAltScreenCommand + '\x1b[2J\x1b[H');
+process.on('exit', () => {
+  process.stdout.write(leaveAltScreenCommand);
+});
+
 const database = new DatabaseManager(dbPath);
 
-const { waitUntilExit } = render(<App database={database} projectRoot={projectRoot} />);
-
-// Cleanup on exit - only restore terminal, don't clear (Ink handles it)
-waitUntilExit().then(() => {
-  // Ink handles cleanup, just exit
-}).catch(() => {
-  // Ink handles cleanup, just exit
-});
+render(<App database={database} projectRoot={projectRoot} />);
