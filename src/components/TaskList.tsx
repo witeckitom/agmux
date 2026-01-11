@@ -42,7 +42,7 @@ export const TaskList = React.memo(function TaskList() {
 
       return (
         <Box flexDirection="column" flexGrow={1} width={terminalWidth}>
-          <Box flexDirection="row" flexGrow={1} width={terminalWidth} height="100%">
+          <Box flexDirection="row" flexGrow={1} width={terminalWidth}>
             <TaskColumn
               status="Queued"
               runs={statusMap.Queued}

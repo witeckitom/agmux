@@ -78,8 +78,10 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
 
   // Get terminal dimensions for full-screen layout
   // Memoize to prevent recalculation on every render
+  // NOTE: Using rows - 1 to prevent Ink flickering issue
+  // See: https://github.com/vadimdemedes/ink/issues/359
   const terminalDimensions = useMemo(() => ({
-    height: process.stdout.rows || 24,
+    height: (process.stdout.rows || 24) - 1,
     width: process.stdout.columns || 80,
   }), []);
 
@@ -98,7 +100,7 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
         // If merge prompt is showing, render it instead of main content
         if (mergePrompt) {
           return (
-            <Box flexDirection="column">
+            <Box flexDirection="column" height={terminalDimensions.height}>
               <MergeBranchPromptView
                 runId={mergePrompt.runId}
                 defaultBranch={mergePrompt.defaultBranch}
@@ -122,7 +124,7 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
         // If confirmation dialog is showing, render it instead of main content
         if (confirmation) {
           return (
-            <Box flexDirection="column">
+            <Box flexDirection="column" height={terminalDimensions.height}>
               <KeyboardHandler />
               <ConfirmationDialog
                 message={confirmation.message}
@@ -136,7 +138,7 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
   // Show splash screen on initial load
   if (showSplash) {
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" height={terminalDimensions.height}>
         <SplashScreen
           version={packageJson.version}
           onComplete={() => setShowSplash(false)}
@@ -146,7 +148,7 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
   }
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" height={terminalDimensions.height}>
       <KeyboardHandler />
       <TopBar />
       <CommandMode isCommandMode={commandMode} />

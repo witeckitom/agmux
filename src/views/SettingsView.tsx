@@ -486,7 +486,7 @@ export function SettingsView() {
   };
 
   return (
-    <Box flexDirection="column" width={terminalWidth} height="100%">
+    <Box flexDirection="column" width={terminalWidth} flexGrow={1}>
       <Box marginBottom={0} paddingX={2} paddingY={0} borderBottom={true} borderStyle="single">
         <Text bold color="cyan">
           Settings

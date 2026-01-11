@@ -71,18 +71,53 @@ const App = () => {
 };
 ```
 
-**Better approach**:
+**Correct approach - Explicit heights only in timer-free views**:
+
+When any component in the tree has a timer or frequently-updating state, you cannot use explicit heights anywhere in the ancestor chain without causing full repaints.
+
 ```tsx
-// ✅ BETTER: Avoid explicit height, use flex layout
-const App = () => {
+// ❌ BAD: Timer + explicit height = flashing
+const TaskDetailView = () => {
+  const height = process.stdout.rows;
+  return (
+    <Box height={height}> {/* Explicit height */}
+      <StatusBar /> {/* Contains timer - WILL CAUSE FLASHING */}
+      <Columns />
+    </Box>
+  );
+};
+
+// ✅ GOOD: Timer view uses flexGrow, no explicit height
+const TaskDetailView = () => {
   return (
     <Box flexDirection="column" flexGrow={1}>
-      <Timer />
-      <Content />
+      <StatusBar /> {/* Contains isolated timer */}
+      <Box flexDirection="row" flexGrow={1}>
+        <ChatColumn />
+        <FilesColumn />
+        <DiffColumn />
+      </Box>
+    </Box>
+  );
+};
+
+// ✅ GOOD: Views WITHOUT timers CAN use explicit heights
+const TaskList = () => {
+  const height = process.stdout.rows - 7; // Subtract TopBar etc.
+  return (
+    <Box height={height}> {/* Safe - no timers in this tree */}
+      <TaskColumn height={height} />
+      <TaskColumn height={height} />
     </Box>
   );
 };
 ```
+
+**Key rules**:
+- NEVER use explicit `height` when the component tree contains timers or frequent updates
+- Views WITHOUT timers (like TasksView/TaskList) CAN safely use explicit heights for full-screen layouts
+- Use `flexGrow={1}` for views that have timers
+- Compute available height by subtracting known heights (TopBar ~5 lines, CommandMode ~3 lines when active)
 
 ---
 
@@ -117,7 +152,8 @@ src/
 1. Views are full-screen components accessed via command mode
 2. Components should be keyboard-navigable (vim-style)
 3. Use the existing context providers (`AppContext`, `InputContext`, `SettingsContext`)
-4. Follow the k9s-style UI patterns established in the codebase
+4. Use `flexGrow={1}` for layouts - avoid explicit heights due to Ink repaint issues
+5. Follow the k9s-style UI patterns established in the codebase
 
 ---
 

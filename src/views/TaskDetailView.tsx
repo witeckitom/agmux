@@ -369,14 +369,14 @@ export function TaskDetailView() {
 
   if (!selectedRun) {
     return (
-      <Box padding={2} flexDirection="column">
+      <Box padding={2} flexDirection="column" flexGrow={1}>
         <Text color="red">Task not found</Text>
       </Box>
     );
   }
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" flexGrow={1}>
       {/* Status bar at top - memoized to isolate timer updates */}
       <StatusBar
         runId={selectedRun.id}

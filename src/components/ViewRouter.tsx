@@ -7,7 +7,6 @@ import { ProfilesView } from '../views/ProfilesView.js';
 import { AgentsView } from '../views/AgentsView.js';
 import { NewTaskView } from '../views/NewTaskView.js';
 import { TaskDetailView } from '../views/TaskDetailView.js';
-import { TaskDetailViewSimple } from '../views/TaskDetailViewSimple.js';
 import { SettingsView } from '../views/SettingsView.js';
 
 // Memoized view components to prevent re-renders when parent re-renders

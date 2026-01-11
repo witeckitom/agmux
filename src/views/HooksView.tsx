@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 
 export function HooksView() {
   return (
-    <Box padding={2} flexDirection="column">
+    <Box padding={2} flexDirection="column" flexGrow={1}>
       <Text bold>Hooks View</Text>
       <Text dimColor>Hooks will be loaded from project configuration files.</Text>
       <Text dimColor>Coming soon...</Text>

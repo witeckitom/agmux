@@ -85,7 +85,7 @@ export function NewTaskView() {
   };
 
   return (
-    <Box flexDirection="column" padding={2}>
+    <Box flexDirection="column" padding={2} flexGrow={1}>
       <Box marginBottom={1}>
         <Text bold color="cyan">Create New Task</Text>
       </Box>
