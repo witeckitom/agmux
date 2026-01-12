@@ -48,7 +48,7 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
     setCurrentViewExternal(currentView);
   }, [currentView]);
   
-  // Calculate running count for TopBar
+  // Calculate running count for TopBar (only actively running, not paused)
   const runningCount = useMemo(() => 
     appContext.state.runs.filter(r => r.status === 'running').length,
     [appContext.state.runs]

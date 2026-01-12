@@ -88,7 +88,7 @@ export class TaskExecutor {
     }
 
     // Double-check database status as a fallback
-    if (run.status === 'running' && !run.readyToAct) {
+    if (run.status === 'running') {
       logger.error(`BLOCKED: Task ${runId} is already running (per database)`, 'TaskExecutor');
       return;
     }
@@ -157,6 +157,7 @@ export class TaskExecutor {
         runWithSkill,
         (content: string) => {
           // On message - notify UI to refresh (no logging - too noisy)
+          // Also trigger a progress check since new content might contain progress updates
           this.notifyUpdate();
         },
         (error: Error) => {
@@ -175,10 +176,10 @@ export class TaskExecutor {
           // RELEASE HARD LOCK
           this.startingTasks.delete(runId);
           logger.info(`LOCK RELEASED (TaskExecutor complete): Task ${runId} completed, waiting for user input`, 'TaskExecutor');
-          // On complete - set to Needs Input (running with readyToAct=true)
+          // On complete - set to Needs Input (paused status)
           // NOTE: We DON'T delete from runningTasks - the agent maintains context
           this.database.updateRun(runId, {
-            status: 'running',
+            status: 'paused',
             phase: 'agent_execution',
             readyToAct: true, // This puts it in "Needs Input" status
           });
@@ -240,7 +241,7 @@ export class TaskExecutor {
 
     logger.info(`Sending message to task ${runId}`, 'TaskExecutor');
     
-    // Update status to running (In Progress)
+    // Update status to running (In Progress) - resume from paused
     this.database.updateRun(runId, {
       prompt: message,
       readyToAct: false,
@@ -271,7 +272,7 @@ export class TaskExecutor {
         // Agent completed - back to Needs Input
         logger.info(`Task ${runId} completed, waiting for user input`, 'TaskExecutor');
         this.database.updateRun(runId, {
-          status: 'running',
+          status: 'paused',
           phase: 'agent_execution',
           readyToAct: true,
         });

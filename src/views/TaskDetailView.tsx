@@ -9,6 +9,7 @@ import { join } from 'path';
 import { existsSync, readdirSync } from 'fs';
 import { spawn } from 'child_process';
 import { loadSkills, getSkillById, Skill } from '../utils/skillsLoader.js';
+import { Spinner } from '../components/Spinner.js';
 
 // Animated spinner for progress indication
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -106,15 +107,21 @@ const StatusBar = React.memo(function StatusBar({
   skillName,
 }: StatusBarProps) {
   const statusColor = status === 'running' ? 'green' :
+                     status === 'paused' ? 'yellow' :
                      status === 'completed' ? 'cyan' :
                      status === 'failed' ? 'red' :
                      status === 'cancelled' ? 'yellow' : 'gray';
 
   const isCompleted = status === 'completed' || status === 'failed' || status === 'cancelled';
+  const isRunning = status === 'running';
+  const isPaused = status === 'paused';
   const showCompletedDuration = isCompleted && durationMs && durationMs > 0;
 
   // Display task name, fallback to run ID if no name
   const displayName = taskName || runId.slice(0, 8);
+
+  // Display status text - show "Needs Input" for paused status
+  const displayStatus = isPaused ? 'Needs Input' : status;
 
   return (
     <Box borderBottom={true} borderStyle="single" paddingX={1} height={4}>
@@ -138,8 +145,8 @@ const StatusBar = React.memo(function StatusBar({
           <Box flexDirection="column" alignItems="flex-end">
             <Box flexDirection="row" marginBottom={0}>
               <Text bold color={statusColor}>Status:</Text>
-              <Text color={statusColor}> {status}</Text>
-              {status === 'running' && (
+              <Text color={statusColor}> {displayStatus}</Text>
+              {isRunning && (
                 <>
                   <Text dimColor> | </Text>
                   <Text bold>Running:</Text>
@@ -157,6 +164,8 @@ const StatusBar = React.memo(function StatusBar({
             </Box>
             <Box marginTop={0}>
               <Text>
+                {isRunning && <Spinner active={true} />}
+                {' '}
                 {renderProgressBar(progressPercent, 30)} <Text bold color="cyan">{progressPercent}%</Text>
               </Text>
             </Box>
@@ -277,13 +286,13 @@ export function TaskDetailView() {
       return;
     }
 
-    // Only poll when running (either actively processing or waiting for input)
-    if (selectedRun.status !== 'running') {
+    // Only poll when running or paused (waiting for input)
+    if (selectedRun.status !== 'running' && selectedRun.status !== 'paused') {
       return;
     }
 
-    // Poll every 100ms while actively processing, 500ms when waiting for input
-    const pollIntervalMs = selectedRun.readyToAct ? 500 : 100;
+    // Poll every 100ms while actively processing, 500ms when paused/waiting for input
+    const pollIntervalMs = selectedRun.status === 'paused' ? 500 : 100;
     
     const pollInterval = setInterval(() => {
       const runMessages = database.getMessagesByRunId(selectedRunId);
@@ -368,7 +377,7 @@ export function TaskDetailView() {
 
   // Poll for changed files while task is running
   useEffect(() => {
-    if (!selectedRun || selectedRun.status !== 'running') {
+    if (!selectedRun || (selectedRun.status !== 'running' && selectedRun.status !== 'paused')) {
       return;
     }
 
@@ -403,6 +412,7 @@ export function TaskDetailView() {
     } else {
       messages.forEach((msg, index) => {
         const isLastMessage = index === messages.length - 1;
+        // Only show streaming indicator when actively running (not paused)
         const isStreaming = isLastMessage && msg.role === 'assistant' && selectedRun?.status === 'running';
         
         // Add header line

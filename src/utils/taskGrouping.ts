@@ -38,15 +38,13 @@ export function groupTasksByStatus(runs: Run[]): TaskGroup[] {
 }
 
 function mapRunStatusToDisplayStatus(status: RunStatus, readyToAct: boolean): DisplayStatus {
-  if (readyToAct && status === 'running') {
-    return 'Needs Input';
-  }
-  
   switch (status) {
     case 'queued':
       return 'Queued';
     case 'running':
       return 'In Progress';
+    case 'paused':
+      return 'Needs Input';
     case 'completed':
       return 'Done';
     case 'failed':
