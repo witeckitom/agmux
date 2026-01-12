@@ -4,7 +4,7 @@ import { useInput } from 'ink';
 import { useApp } from '../context/AppContext.js';
 import { logger } from '../utils/logger.js';
 import { Message, Run } from '../models/types.js';
-import { getChangedFiles, getFileDiff, ChangedFile } from '../utils/gitUtils.js';
+import { getChangedFiles, getFileDiff, ChangedFile, createCommit } from '../utils/gitUtils.js';
 import { join } from 'path';
 import { existsSync, readdirSync } from 'fs';
 
@@ -164,7 +164,7 @@ const StatusBar = React.memo(function StatusBar({
 });
 
 export function TaskDetailView() {
-  const { state, database, sendMessageToTask } = useApp();
+  const { state, database, sendMessageToTask, showConfirmation, mergeTaskBranch, refreshRuns, setChatEditing, markTaskComplete } = useApp();
   const { stdout } = useStdout();
 
   // Get terminal dimensions reactively
@@ -444,6 +444,7 @@ export function TaskDetailView() {
     if (editingChat) {
       if (key.escape) {
         setEditingChat(false);
+        setChatEditing(false);
         chatInputRef.current = '';
         setChatInputDisplay(x => x + 1);
         return;
@@ -454,6 +455,7 @@ export function TaskDetailView() {
         const message = chatInputRef.current.trim();
         chatInputRef.current = '';
         setEditingChat(false);
+        setChatEditing(false);
         setChatInputDisplay(x => x + 1);
         if (selectedRun) {
           sendMessageToTask(selectedRun.id, message);
@@ -467,7 +469,8 @@ export function TaskDetailView() {
         return;
       }
 
-      if (input && input.length === 1) {
+      // Handle multi-character input (paste, special characters, etc.)
+      if (input && input.length > 0) {
         chatInputRef.current = chatInputRef.current + input;
         setChatInputDisplay(x => x + 1);
         return;
@@ -511,6 +514,7 @@ export function TaskDetailView() {
       // Enter to start typing (when task is ready)
       if (key.return && selectedRun?.readyToAct) {
         setEditingChat(true);
+        setChatEditing(true);
         return;
       }
     }
@@ -525,6 +529,177 @@ export function TaskDetailView() {
         setSelectedFileIndex(prev => Math.max(0, prev - 1));
         return;
       }
+    }
+
+    // Shift+M to merge worktree to main
+    if (key.shift && (input === 'm' || input === 'M')) {
+      if (!selectedRun) {
+        logger.warn('No task selected for merge', 'TaskDetailView');
+        return;
+      }
+
+      // Try to resolve worktree path (handles empty paths by searching)
+      const worktreePath = resolveWorktreePath(selectedRun.id, selectedRun.worktreePath);
+      
+      // Check if worktree was found
+      if (!worktreePath || worktreePath.trim() === '' || !existsSync(worktreePath)) {
+        showConfirmation(
+          'No worktree found for this task. Cannot merge.',
+          () => {
+            // Just close the dialog
+          }
+        );
+        return;
+      }
+
+      // Check if there are any edits
+      const files = getChangedFiles(worktreePath, selectedRun.id);
+
+      if (files.length === 0) {
+        // No edits - show message
+        showConfirmation(
+          'No changes detected in worktree. Nothing to merge.',
+          () => {
+            // Just close the dialog
+          }
+        );
+      } else {
+        // Has edits - show confirmation
+        const fileCount = files.length;
+        const prompt = selectedRun.prompt || 'this task';
+        const targetBranch = selectedRun.baseBranch || 'main';
+        showConfirmation(
+          `Merge task "${prompt.substring(0, 40)}${prompt.length > 40 ? '...' : ''}" to ${targetBranch}?\n\n${fileCount} file${fileCount > 1 ? 's' : ''} will be merged.\n\nCursor will generate a commit message first.`,
+          async () => {
+            try {
+              // Step 1: Ask Cursor to generate a commit message
+              logger.info(`Asking Cursor to generate commit message for task ${selectedRun.id}`, 'TaskDetailView');
+              
+              // Get the current message count to identify the new response
+              const messagesBefore = database.getMessagesByRunId(selectedRun.id);
+              const messageCountBefore = messagesBefore.length;
+              
+              const commitPrompt = `Please generate a concise commit message for the changes in this worktree. Only provide the commit message text, nothing else.`;
+              await sendMessageToTask(selectedRun.id, commitPrompt);
+
+              // Step 2: Poll for the response
+              // Wait for the agent to finish and be ready to act
+              const pollForCommitMessage = async (): Promise<string | null> => {
+                const maxAttempts = 120; // 60 seconds max (500ms * 120)
+                let attempts = 0;
+                
+                while (attempts < maxAttempts) {
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                  
+                  // Refresh run state
+                  const updatedRun = database.getRun(selectedRun.id);
+                  if (!updatedRun) {
+                    return null;
+                  }
+
+                  // Check if run failed
+                  if (updatedRun.status === 'failed') {
+                    return null;
+                  }
+
+                  // Check if agent is ready (has responded)
+                  if (updatedRun.readyToAct) {
+                    // Get messages and find the new assistant message
+                    const runMessages = database.getMessagesByRunId(selectedRun.id);
+                    
+                    // Find assistant messages that came after our request
+                    const newMessages = runMessages.slice(messageCountBefore);
+                    const newAssistantMessages = newMessages.filter(m => m.role === 'assistant');
+                    
+                    // If no new assistant messages, check the last one overall
+                    const messagesToCheck = newAssistantMessages.length > 0 
+                      ? newAssistantMessages 
+                      : runMessages.filter(m => m.role === 'assistant');
+                    
+                    if (messagesToCheck.length > 0) {
+                      const lastMessage = messagesToCheck[messagesToCheck.length - 1];
+                      // Extract commit message (should be the last assistant message)
+                      let commitMessage = lastMessage.content.trim();
+                      
+                      // Remove markdown code blocks if present (```commit or ```)
+                      commitMessage = commitMessage.replace(/^```[\w]*\n?/i, '').replace(/\n?```$/i, '');
+                      
+                      // Remove any leading/trailing quotes
+                      commitMessage = commitMessage.replace(/^["']|["']$/g, '');
+                      
+                      // Take only the first line (commit messages are typically single line)
+                      const firstLine = commitMessage.split('\n')[0].trim();
+                      
+                      // Remove any prefix like "Commit message:" or similar
+                      const cleanedMessage = firstLine
+                        .replace(/^(commit message|message|commit):\s*/i, '')
+                        .trim();
+                      
+                      if (cleanedMessage && cleanedMessage.length > 0) {
+                        return cleanedMessage;
+                      }
+                    }
+                  }
+                  
+                  attempts++;
+                }
+                
+                return null; // Timeout
+              };
+
+              const commitMessage = await pollForCommitMessage();
+              
+              if (!commitMessage) {
+                showConfirmation(
+                  'Timeout waiting for commit message from Cursor. Please try again.',
+                  () => {
+                    // Just close the dialog
+                  }
+                );
+                return;
+              }
+
+              logger.info(`Received commit message from Cursor: ${commitMessage.substring(0, 50)}`, 'TaskDetailView');
+
+              // Step 3: Create the commit
+              const commitResult = createCommit(worktreePath, commitMessage);
+              if (!commitResult.success) {
+                showConfirmation(
+                  `Failed to create commit: ${commitResult.error || 'Unknown error'}`,
+                  () => {
+                    // Just close the dialog
+                  }
+                );
+                return;
+              }
+
+              logger.info(`Created commit successfully`, 'TaskDetailView');
+
+              // Step 4: Merge to base branch (main/master)
+              const targetBranch = selectedRun.baseBranch || 'main';
+              await mergeTaskBranch(selectedRun.id, targetBranch);
+              logger.info(`Successfully merged task ${selectedRun.id} to ${targetBranch}`, 'TaskDetailView');
+              
+              // Step 5: Mark task as complete
+              markTaskComplete(selectedRun.id);
+              logger.info(`Marked task ${selectedRun.id} as complete`, 'TaskDetailView');
+              
+              // Refresh runs to update UI
+              refreshRuns();
+            } catch (error: any) {
+              logger.error(`Failed to merge task ${selectedRun.id}`, 'TaskDetailView', { error });
+              // Show error confirmation
+              showConfirmation(
+                `Merge failed: ${error.message || 'Unknown error'}`,
+                () => {
+                  // Just close the dialog
+                }
+              );
+            }
+          }
+        );
+      }
+      return;
     }
   });
 
@@ -603,7 +778,7 @@ export function TaskDetailView() {
                 }
                 return (
                   <Box key={`line-${index}`} paddingLeft={1}>
-                    <Text wrap="truncate-end">{line.text}</Text>
+                    <Text wrap="wrap">{line.text}</Text>
                   </Box>
                 );
               })
@@ -611,12 +786,33 @@ export function TaskDetailView() {
           </Box>
 
           {/* Chat input/help at bottom */}
-          <Box borderTop={true} borderStyle="single" paddingX={1} flexShrink={0}>
+          <Box borderTop={true} borderStyle="single" paddingX={1} flexShrink={0} flexDirection="column">
             {selectedRun.readyToAct ? (
               editingChat ? (
-                <Box flexDirection="row">
-                  <Text color="cyan">&gt; {chatInputRef.current}</Text>
-                  <Text color="yellow">█</Text>
+                <Box flexDirection="column" width="100%">
+                  {chatInputRef.current === '' ? (
+                    <Box flexDirection="row">
+                      <Text color="cyan">&gt; </Text>
+                      <Text color="yellow">█</Text>
+                    </Box>
+                  ) : (
+                    chatInputRef.current.split('\n').map((line, lineIndex) => {
+                      const isLastLine = lineIndex === chatInputRef.current.split('\n').length - 1;
+                      const prompt = lineIndex === 0 ? '> ' : '  ';
+                      
+                      return (
+                        <Box key={lineIndex} flexDirection="row" width="100%">
+                          <Text color="cyan" wrap="wrap">
+                            {prompt}
+                            {line}
+                          </Text>
+                          {isLastLine && (
+                            <Text color="yellow">█</Text>
+                          )}
+                        </Box>
+                      );
+                    })
+                  )}
                 </Box>
               ) : (
                 <Text dimColor>Enter=reply | j/k=scroll | Tab=switch</Text>
@@ -690,7 +886,7 @@ export function TaskDetailView() {
                     color = 'cyan';
                   }
                   return (
-                    <Text key={index} color={color} wrap="truncate-end">{line}</Text>
+                    <Text key={index} color={color} wrap="wrap">{line}</Text>
                   );
                 })
               ) : (

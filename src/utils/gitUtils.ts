@@ -1,6 +1,6 @@
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import { resolve, join } from 'path';
-import { existsSync, readdirSync, statSync } from 'fs';
+import { existsSync, readdirSync, statSync, writeFileSync, unlinkSync } from 'fs';
 import { logger } from './logger.js';
 
 export interface ChangedFile {
@@ -346,6 +346,61 @@ export function getCurrentBranch(worktreePath: string): string | null {
       code: (error as any).code,
     });
     return null;
+  }
+}
+
+/**
+ * Stage all changes and create a commit
+ */
+export function createCommit(worktreePath: string, commitMessage: string): { success: boolean; error?: string } {
+  try {
+    // Resolve to absolute path
+    const absolutePath = worktreePath.startsWith('/') ? worktreePath : resolve(process.cwd(), worktreePath);
+    
+    // Verify the worktree path exists
+    if (!existsSync(absolutePath)) {
+      return { success: false, error: 'Worktree path does not exist' };
+    }
+
+    // Stage all changes
+    execSync('git add -A', { 
+      cwd: absolutePath, 
+      stdio: 'pipe',
+      encoding: 'utf-8',
+    });
+
+    // Create commit with the message
+    // Use a temporary file to handle multi-line messages and special characters safely
+    const tempFile = join(absolutePath, '.commit-msg-temp');
+    try {
+      writeFileSync(tempFile, commitMessage, 'utf-8');
+      execSync(`git commit -F .commit-msg-temp`, { 
+        cwd: absolutePath, 
+        stdio: 'pipe',
+        encoding: 'utf-8',
+      });
+      // Clean up temp file
+      unlinkSync(tempFile);
+    } catch (error) {
+      // Clean up temp file even on error
+      if (existsSync(tempFile)) {
+        try {
+          unlinkSync(tempFile);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+      throw error;
+    }
+
+    logger.info(`Created commit in worktree`, 'GitUtils', {
+      worktreePath: absolutePath,
+      commitMessage: commitMessage.substring(0, 50),
+    });
+    return { success: true };
+  } catch (error: any) {
+    logger.error('Failed to create commit', 'GitUtils', { error, worktreePath });
+    return { success: false, error: error.message };
   }
 }
 

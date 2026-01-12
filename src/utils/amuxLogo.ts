@@ -1,16 +1,16 @@
 /**
- * AMUX ASCII logo for use in TopBar and other components
+ * AGMuX ASCII logo for use in TopBar and other components
  */
-export const AMUX_LOGO_COMPACT = 'AMUX';
+export const AMUX_LOGO_COMPACT = 'AGMuX';
 
 // Full ASCII logo
 export const AMUX_LOGO_ASCII = `
-    █████╗ ███╗   ███╗██╗   ██╗██╗  ██╗
-   ██╔══██╗████╗ ████║██║   ██║╚██╗██╔╝
-   ███████║██╔████╔██║██║   ██║ ╚███╔╝ 
-   ██╔══██║██║╚██╔╝██║██║   ██║ ██╔██╗ 
-   ██║  ██║██║ ╚═╝ ██║╚██████╔╝██╔╝ ██╗
-   ╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝
+    █████╗  ██████╗ ███╗   ███╗██╗   ██╗██╗  ██╗
+   ██╔══██╗██╔════╝ ████╗ ████║██║   ██║╚██╗██╔╝
+   ███████║██║  ███╗██╔████╔██║██║   ██║ ╚███╔╝ 
+   ██╔══██║██║   ██║██║╚██╔╝██║██║   ██║ ██╔██╗ 
+   ██║  ██║╚██████╔╝██║ ╚═╝ ██║╚██████╔╝██╔╝ ██╗
+   ╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝
 `.trim();
 
 // Smaller compact ASCII logo for navbar (underscore/slash style)

@@ -24,7 +24,6 @@ export function createWorktree(baseBranch: string, branchPrefix: string, runId: 
 
     // Create the worktree (this creates a new branch and checks it out in the worktree)
     // Note: git worktree add creates the directory and checks out the branch there
-    // Use --force to overwrite if it already exists (shouldn't happen, but be safe)
     try {
       execSync(`git worktree add -b ${branchName} ${worktreePath} ${baseBranch}`, {
         stdio: 'pipe', // Don't inherit to avoid cluttering output
@@ -32,18 +31,107 @@ export function createWorktree(baseBranch: string, branchPrefix: string, runId: 
         encoding: 'utf-8',
       });
     } catch (error: any) {
-      // If worktree already exists, try to remove it first, then recreate
-      if (error.message.includes('already exists') || error.message.includes('already checked out')) {
-        logger.warn(`Worktree ${worktreePath} already exists, removing and recreating`, 'GitWorktree');
+      const errorMessage = error.message || String(error);
+      
+      // If worktree path already exists, remove it first
+      if (errorMessage.includes('already exists') && errorMessage.includes(worktreePath)) {
+        logger.warn(`Worktree path ${worktreePath} already exists, removing and recreating`, 'GitWorktree');
         try {
           execSync(`git worktree remove --force ${worktreePath}`, {
             stdio: 'pipe',
             cwd: process.cwd(),
+            encoding: 'utf-8',
           });
         } catch (removeError: any) {
-          // Ignore errors removing non-existent worktree
+          // If removal fails, try to remove the directory manually
+          logger.warn(`Failed to remove worktree via git, will try to delete branch and recreate`, 'GitWorktree');
         }
         // Try again
+        try {
+          execSync(`git worktree add -b ${branchName} ${worktreePath} ${baseBranch}`, {
+            stdio: 'pipe',
+            cwd: process.cwd(),
+            encoding: 'utf-8',
+          });
+        } catch (retryError: any) {
+          // If still fails, the branch might exist - delete it and try again
+          if (retryError.message.includes('already exists') && retryError.message.includes('branch')) {
+            logger.warn(`Branch ${branchName} already exists, deleting and recreating`, 'GitWorktree');
+            try {
+              execSync(`git branch -D ${branchName}`, {
+                stdio: 'pipe',
+                cwd: process.cwd(),
+                encoding: 'utf-8',
+              });
+            } catch (deleteError: any) {
+              // Branch might not exist or be checked out elsewhere, continue anyway
+              logger.warn(`Could not delete branch ${branchName}, will try to use existing`, 'GitWorktree');
+            }
+            // Try creating worktree without -b flag (use existing branch) or with -b again
+            try {
+              execSync(`git worktree add ${worktreePath} ${branchName}`, {
+                stdio: 'pipe',
+                cwd: process.cwd(),
+                encoding: 'utf-8',
+              });
+            } catch (finalError: any) {
+              // Last resort: try with -b again after branch deletion
+              execSync(`git worktree add -b ${branchName} ${worktreePath} ${baseBranch}`, {
+                stdio: 'pipe',
+                cwd: process.cwd(),
+                encoding: 'utf-8',
+              });
+            }
+          } else {
+            throw retryError;
+          }
+        }
+      } else if (errorMessage.includes('already exists') && errorMessage.includes('branch')) {
+        // Branch exists but worktree path doesn't - delete branch and recreate
+        logger.warn(`Branch ${branchName} already exists, deleting and recreating`, 'GitWorktree');
+        try {
+          execSync(`git branch -D ${branchName}`, {
+            stdio: 'pipe',
+            cwd: process.cwd(),
+            encoding: 'utf-8',
+          });
+        } catch (deleteError: any) {
+          // Branch might be checked out in another worktree, try to remove that worktree first
+          logger.warn(`Could not delete branch ${branchName}, checking for existing worktree`, 'GitWorktree');
+          try {
+            // List all worktrees and find one using this branch
+            const worktreesOutput = execSync('git worktree list', {
+              stdio: 'pipe',
+              cwd: process.cwd(),
+              encoding: 'utf-8',
+            });
+            const worktreeLines = worktreesOutput.split('\n');
+            for (const line of worktreeLines) {
+              if (line.includes(branchName)) {
+                const existingPath = line.split(/\s+/)[0];
+                if (existingPath && existingPath !== worktreePath) {
+                  logger.warn(`Removing existing worktree at ${existingPath} using branch ${branchName}`, 'GitWorktree');
+                  execSync(`git worktree remove --force "${existingPath}"`, {
+                    stdio: 'pipe',
+                    cwd: process.cwd(),
+                    encoding: 'utf-8',
+                  });
+                  // Now delete the branch
+                  execSync(`git branch -D ${branchName}`, {
+                    stdio: 'pipe',
+                    cwd: process.cwd(),
+                    encoding: 'utf-8',
+                  });
+                  break;
+                }
+              }
+            }
+          } catch (cleanupError: any) {
+            // If cleanup fails, just try to create worktree with existing branch
+            logger.warn(`Cleanup failed, will try to use existing branch`, 'GitWorktree');
+          }
+        }
+        // Try again after cleanup
         execSync(`git worktree add -b ${branchName} ${worktreePath} ${baseBranch}`, {
           stdio: 'pipe',
           cwd: process.cwd(),

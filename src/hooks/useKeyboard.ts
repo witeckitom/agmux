@@ -62,6 +62,11 @@ export function useKeyboard() {
 
 
   useInput((input, key) => {
+    // Skip all keyboard handling when chat editing is active
+    if (state.chatEditing) {
+      return;
+    }
+
     // Confirmation dialog handling (takes priority)
     if (state.confirmation) {
       if (input === 'y' || input === 'Y' || key.return) {

@@ -27,6 +27,7 @@ interface AppState {
   confirmation: ConfirmationState | null;
   selectedRunId: string | null;
   mergePrompt: { runId: string; defaultBranch: string } | null;
+  chatEditing: boolean; // True when user is typing in chat input
 }
 
 interface AppContextValue {
@@ -53,6 +54,7 @@ interface AppContextValue {
   openPRForTask: (runId: string) => Promise<void>;
   markTaskComplete: (runId: string) => void;
   openWorktreeInVSCode: (runId: string) => void;
+  setChatEditing: (editing: boolean) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -124,6 +126,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     confirmation: null,
     selectedRunId: null,
     mergePrompt: null,
+    chatEditing: false,
   });
 
   const setCurrentView = useCallback((view: ViewType) => {
@@ -438,13 +441,46 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
   const mergeTaskBranch = useCallback(
     async (runId: string, targetBranch: string) => {
       const run = state.runs.find(r => r.id === runId);
-      if (!run || !run.worktreePath) {
-        logger.warn(`Cannot merge: run ${runId} not found or no worktree`, 'App');
-        return;
+      if (!run) {
+        logger.warn(`Cannot merge: run ${runId} not found`, 'App');
+        throw new Error(`Run ${runId} not found`);
+      }
+
+      // Resolve worktree path (handles empty paths by searching)
+      let worktreePath = run.worktreePath || '';
+      if (!worktreePath || worktreePath.startsWith('/tmp/') || worktreePath.trim() === '') {
+        const worktreesDir = join(projectRoot, '.worktrees');
+        if (existsSync(worktreesDir)) {
+          try {
+            const worktreeDirs = readdirSync(worktreesDir, { withFileTypes: true })
+              .filter(dirent => dirent.isDirectory())
+              .map(dirent => join(worktreesDir, dirent.name));
+            
+            const runIdPrefix = runId.slice(0, 8);
+            for (const dir of worktreeDirs) {
+              const dirName = dir.split('/').pop() || '';
+              if (dirName.includes(runIdPrefix)) {
+                worktreePath = dir;
+                break;
+              }
+            }
+          } catch (error: any) {
+            logger.warn(`Could not search for worktree: ${error.message}`, 'App');
+          }
+        }
+      }
+
+      // Verify worktree exists
+      if (!worktreePath || worktreePath.trim() === '' || !existsSync(worktreePath)) {
+        logger.warn(`Cannot merge: no worktree found for run ${runId}`, 'App', { 
+          storedPath: run.worktreePath,
+          resolvedPath: worktreePath 
+        });
+        throw new Error(`No worktree found for task ${runId}`);
       }
 
       try {
-        const result = mergeToBranch(run.worktreePath, targetBranch);
+        const result = mergeToBranch(worktreePath, targetBranch);
         if (result.success) {
           logger.info(`Merged task ${runId} branch to ${targetBranch}`, 'App');
           refreshRuns();
@@ -457,7 +493,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
         throw error;
       }
     },
-    [state.runs, refreshRuns]
+    [state.runs, refreshRuns, projectRoot]
   );
 
   const openPRForTask = useCallback(
@@ -590,6 +626,10 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     [state.runs]
   );
 
+  const setChatEditing = useCallback((editing: boolean) => {
+    setState(prev => ({ ...prev, chatEditing: editing }));
+  }, []);
+
   // Memoize context value to prevent unnecessary re-renders
   const contextValue = useMemo(() => ({
     state,
@@ -615,6 +655,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     openPRForTask,
     markTaskComplete,
     openWorktreeInVSCode,
+    setChatEditing,
   }), [
     state,
     database,
@@ -639,6 +680,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     openPRForTask,
     markTaskComplete,
     openWorktreeInVSCode,
+    setChatEditing,
   ]);
 
   return (
