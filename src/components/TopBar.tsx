@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo, useSyncExternalStore } from 'react';
 import { Box, Text } from 'ink';
 import { execSync } from 'child_process';
-import { AMUX_LOGO_MEDIUM } from '../utils/amuxLogo.js';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 // External store for TopBar data - only updates when relevant data changes
 let topBarStore: {
@@ -74,8 +75,18 @@ export const TopBar = React.memo(function TopBar() {
   const contextDisplay = storeData.currentView;
   const runningCount = storeData.runningCount;
 
-  const navBarHeight = 6; // Height for medium logo
-  const logoLines = AMUX_LOGO_MEDIUM.split('\n');
+  const navBarHeight = 8; // Height for medium logo + padding
+  // Read logo from file - try src/agmux_logo relative to project root
+  const logoLines = useMemo(() => {
+    try {
+      const logoPath = join(storeData.projectRoot, 'src', 'agmux_logo');
+      const logoContent = readFileSync(logoPath, 'utf-8').trim();
+      return logoContent.split('\n');
+    } catch {
+      // Fallback to empty array if file can't be read
+      return [];
+    }
+  }, [storeData.projectRoot]);
 
   return (
     <Box 
@@ -84,8 +95,17 @@ export const TopBar = React.memo(function TopBar() {
       borderBottom={true} 
       height={navBarHeight}
       flexDirection="row"
+      paddingY={1}
     >
-      {/* Left side - content */}
+      {/* Left side - logo */}
+      <Box paddingX={1} justifyContent="flex-start" alignItems="flex-start" flexDirection="column" paddingY={0}>
+        {logoLines.map((line, index) => (
+          <Text key={index} color="cyan">
+            {line}
+          </Text>
+        ))}
+      </Box>
+      {/* Right side - content */}
       <Box flexDirection="column" flexGrow={1} justifyContent="flex-start" paddingY={0}>
         <Box flexDirection="row" paddingY={0}>
           <Box paddingX={1} paddingY={0} flexGrow={1}>
@@ -101,14 +121,6 @@ export const TopBar = React.memo(function TopBar() {
             </Text>
           </Box>
         </Box>
-      </Box>
-      {/* Right side - logo */}
-      <Box paddingX={1} justifyContent="flex-start" alignItems="flex-end" flexDirection="column" paddingY={0}>
-        {logoLines.map((line, index) => (
-          <Text key={index} color="cyan">
-            {line}
-          </Text>
-        ))}
       </Box>
     </Box>
   );
