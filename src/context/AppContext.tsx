@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef, ReactNode, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, ReactNode, useMemo, useEffect } from 'react';
 import { ViewType, Run } from '../models/types.js';
 import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
@@ -79,12 +79,15 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
       const newRunIds = runs.map(r => r.id).join(',');
       
       if (prevRunIds === newRunIds) {
-        // Check if any run data changed
-        const runsChanged = prev.runs.some((prevRun, index) => {
-          const newRun = runs[index];
-          return !newRun || 
-                 prevRun.status !== newRun.status ||
+        // Check if any run data changed by comparing runs by ID
+        const runsChanged = prev.runs.some((prevRun) => {
+          const newRun = runs.find(r => r.id === prevRun.id);
+          if (!newRun) return true; // Run was removed
+          
+          return prevRun.status !== newRun.status ||
                  prevRun.progressPercent !== newRun.progressPercent ||
+                 prevRun.totalSubtasks !== newRun.totalSubtasks ||
+                 prevRun.completedSubtasks !== newRun.completedSubtasks ||
                  prevRun.phase !== newRun.phase ||
                  prevRun.readyToAct !== newRun.readyToAct ||
                  prevRun.durationMs !== newRun.durationMs;
@@ -383,14 +386,14 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
 
         logger.info(`toggleTaskStatus called for ${runId}, current status: ${run.status}, readyToAct: ${run.readyToAct}`, 'App');
 
-        if (run.status === 'queued' || run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
-          // Start the task
-          logger.info(`Starting task: ${runId}`, 'App');
+        if (run.status === 'queued' || run.status === 'paused' || run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+          // Start or resume the task
+          logger.info(`Starting/resuming task: ${runId}`, 'App');
           try {
             await taskExecutor.startTask(runId);
             refreshRuns();
           } catch (error: any) {
-            logger.error(`Failed to start task ${runId}`, 'App', { error });
+            logger.error(`Failed to start/resume task ${runId}`, 'App', { error });
             refreshRuns();
           }
         } else if (run.status === 'running') {
@@ -636,6 +639,24 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
   const setChatEditing = useCallback((editing: boolean) => {
     setState(prev => ({ ...prev, chatEditing: editing }));
   }, []);
+
+  // Poll for progress updates when there are running or paused tasks
+  useEffect(() => {
+    const hasActiveTasks = state.runs.some(r => r.status === 'running' || r.status === 'paused');
+    
+    if (!hasActiveTasks) {
+      return;
+    }
+
+    // Poll every 500ms to ensure progress bars update smoothly
+    const interval = setInterval(() => {
+      if (refreshRunsRef.current) {
+        refreshRunsRef.current();
+      }
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, [state.runs]);
 
   // Memoize context value to prevent unnecessary re-renders
   const contextValue = useMemo(() => ({

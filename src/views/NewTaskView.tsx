@@ -5,6 +5,9 @@ import { useInput } from 'ink';
 import { logger } from '../utils/logger.js';
 import { MultiLineTextInput } from '../components/MultiLineTextInput.js';
 import { loadSkills, Skill } from '../utils/skillsLoader.js';
+import { removeWorktree } from '../utils/gitWorktree.js';
+import { resolve } from 'path';
+import { existsSync } from 'fs';
 
 type Field = 'name' | 'prompt' | 'skill';
 
@@ -116,7 +119,10 @@ export function NewTaskView() {
       // Create the full prompt with system instructions
       const systemPrompt = `You are an AI assistant helping with a development task. Your goal is to break down the work into a plan of tasks and execute them in order.
 
-IMPORTANT: As you work, you must periodically return a JSON representation of your progress. The JSON should have this format:
+CRITICAL REQUIREMENT - PROGRESS JSON UPDATES:
+The application controlling this agent requires progress updates in a specific JSON format to track your work. You MUST return this JSON format in your responses, NO MATTER WHAT THE QUERY IS, and ANYTIME you are thinking about or working on tasks.
+
+The required JSON format is:
 {
   "totalTasks": <number>,
   "completedTasks": <number>,
@@ -125,14 +131,72 @@ IMPORTANT: As you work, you must periodically return a JSON representation of yo
   ]
 }
 
-Return this JSON whenever you:
-1. Create your initial plan (with all tasks as "pending")
-2. Start working on a task (mark it as "in_progress")
-3. Complete a task (mark it as "completed")
-4. Add new tasks to your plan
+You MUST include this JSON:
+- When you create your initial plan (with all tasks as "pending")
+- When you start working on a task (mark it as "in_progress")
+- When you complete a task (mark it as "completed")
+- When you add new tasks to your plan
+- ANYTIME you are thinking about the task breakdown or progress
+- In EVERY response where you mention tasks, planning, or progress
+- Even if the user asks a simple question, include the current progress JSON
+
+This is required for the application to understand your progress updates in chat responses. Without this JSON, the application cannot track your work properly.
 
 The user's task is:
 ${taskPrompt}`;
+
+      // Clear completed tasks before creating a new one (silently, without confirmation)
+      const allRuns = database.getAllRuns();
+      const completedRuns = allRuns.filter(r => 
+        r.status === 'completed' || r.status === 'failed' || r.status === 'cancelled'
+      );
+      
+      if (completedRuns.length > 0) {
+        logger.info(`Clearing ${completedRuns.length} completed task(s) before creating new task`, 'NewTaskView');
+        
+        const projectRoot = process.cwd();
+        
+        for (const completedRun of completedRuns) {
+          // Delete worktree if it exists and task is not set to retain it
+          if (completedRun.worktreePath && completedRun.worktreePath.trim() !== '' && !completedRun.retainWorktree) {
+            try {
+              let worktreePathForRemoval: string;
+              
+              if (completedRun.worktreePath.startsWith('/')) {
+                const normalizedProjectRoot = projectRoot.replace(/\/$/, '');
+                const normalizedWorktreePath = completedRun.worktreePath.replace(/\/$/, '');
+                
+                if (normalizedWorktreePath.startsWith(normalizedProjectRoot + '/')) {
+                  worktreePathForRemoval = normalizedWorktreePath.substring(normalizedProjectRoot.length + 1);
+                } else {
+                  const worktreesMatch = normalizedWorktreePath.match(/\.worktrees\/[^/]+/);
+                  if (worktreesMatch) {
+                    worktreePathForRemoval = worktreesMatch[0];
+                  } else {
+                    worktreePathForRemoval = completedRun.worktreePath;
+                  }
+                }
+              } else {
+                worktreePathForRemoval = completedRun.worktreePath;
+              }
+              
+              const absolutePath = resolve(projectRoot, worktreePathForRemoval);
+              if (existsSync(absolutePath)) {
+                removeWorktree(worktreePathForRemoval);
+                logger.debug(`Removed worktree for completed task: ${completedRun.id}`, 'NewTaskView');
+              }
+            } catch (error: any) {
+              logger.debug(`Failed to remove worktree for completed task ${completedRun.id}`, 'NewTaskView', { error });
+            }
+          }
+          
+          // Delete the run from database
+          database.deleteRun(completedRun.id);
+        }
+        
+        // Refresh runs after deletion
+        refreshRuns();
+      }
 
       // Create a new run/task
       const run = database.createRun({

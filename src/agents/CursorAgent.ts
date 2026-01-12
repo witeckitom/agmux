@@ -192,7 +192,9 @@ export class CursorAgent implements Agent {
       let assistantContent = '';
       let assistantMessageId: string | null = null;
       let lastSaveTime = Date.now();
+      let lastProgressCheck = Date.now();
       const SAVE_INTERVAL_MS = 200;
+      const PROGRESS_CHECK_INTERVAL_MS = 1000;
 
       // Process stdout as JSON lines
       let buffer = '';

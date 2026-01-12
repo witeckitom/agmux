@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { Run } from '../models/types.js';
+import { Spinner } from './Spinner.js';
 
 interface TaskCardProps {
   run: Run;
@@ -74,7 +75,7 @@ export const TaskCard = React.memo(function TaskCard({ run, selected = false, wi
       ? displayText.slice(0, maxDisplayLength - 3) + '...'
       : displayText;
 
-  const showProgress = run.status === 'running';
+  const isRunning = run.status === 'running';
   const isCompleted = run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled';
   const showCompletedDuration = isCompleted && run.durationMs && run.durationMs > 0;
 
@@ -101,10 +102,10 @@ export const TaskCard = React.memo(function TaskCard({ run, selected = false, wi
           {formatPhase(run.phase)}
         </Text>
       </Box>
-      {showProgress && (
+      {isRunning && (
         <Box marginBottom={0} height={1}>
           <Text>
-            {progressBar} <Text bold color="cyan">{run.progressPercent}%</Text>
+            <Spinner active={isRunning} /> {progressBar} <Text bold color="cyan">{run.progressPercent}%</Text>
           </Text>
         </Box>
       )}
