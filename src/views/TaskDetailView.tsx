@@ -8,6 +8,7 @@ import { getChangedFiles, getFileDiff, ChangedFile, createCommit } from '../util
 import { join } from 'path';
 import { existsSync, readdirSync } from 'fs';
 import { spawn } from 'child_process';
+import { loadSkills, getSkillById, Skill } from '../utils/skillsLoader.js';
 
 // Animated spinner for progress indication
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -91,7 +92,8 @@ interface StatusBarProps {
   createdAt: Date;
   durationMs?: number | null;
   progressPercent: number;
-  prompt?: string | null;
+  taskName?: string | null;
+  skillName?: string | null;
 }
 
 const StatusBar = React.memo(function StatusBar({
@@ -100,7 +102,8 @@ const StatusBar = React.memo(function StatusBar({
   createdAt,
   durationMs,
   progressPercent,
-  prompt,
+  taskName,
+  skillName,
 }: StatusBarProps) {
   const statusColor = status === 'running' ? 'green' :
                      status === 'completed' ? 'cyan' :
@@ -110,44 +113,55 @@ const StatusBar = React.memo(function StatusBar({
   const isCompleted = status === 'completed' || status === 'failed' || status === 'cancelled';
   const showCompletedDuration = isCompleted && durationMs && durationMs > 0;
 
-  // Truncate prompt if too long
-  const displayPrompt = prompt && prompt.length > 100 
-    ? prompt.slice(0, 100) + '...' 
-    : (prompt || 'No prompt');
+  // Display task name, fallback to run ID if no name
+  const displayName = taskName || runId.slice(0, 8);
 
   return (
-    <Box borderBottom={true} borderStyle="single" paddingX={1} height={3}>
+    <Box borderBottom={true} borderStyle="single" paddingX={1} height={4}>
       <Box flexDirection="column" width="100%">
         <Box flexDirection="row" justifyContent="space-between">
-          <Box>
-            <Text bold color="cyan">Task:</Text>
-            <Text> {runId.slice(0, 8)}</Text>
-            <Text dimColor> | </Text>
-            <Text bold color={statusColor}>Status:</Text>
-            <Text color={statusColor}> {status}</Text>
-            {status === 'running' && (
-              <>
-                <Text dimColor> | </Text>
-                <Text bold>Running:</Text>
-                <Text> </Text>
-                <IsolatedRunningTimer startTime={createdAt} showSeconds={true} />
-              </>
-            )}
-            {showCompletedDuration && (
-              <>
-                <Text dimColor> | </Text>
-                <Text bold>Duration:</Text>
-                <Text> {formatDuration(durationMs!, true)}</Text>
-              </>
+          {/* Left side: Name and Persona */}
+          <Box flexDirection="column" flexGrow={1}>
+            <Box>
+              <Text bold color="cyan">📋 Name:</Text>
+              <Text color="white"> {displayName}</Text>
+            </Box>
+            {skillName && (
+              <Box marginTop={0}>
+                <Text bold color="magenta">🎭 Persona:</Text>
+                <Text color="magenta"> {skillName}</Text>
+              </Box>
             )}
           </Box>
-          <Box>
-            <Text>
-              {renderProgressBar(progressPercent, 30)} <Text bold color="cyan">{progressPercent}%</Text>
-            </Text>
+          
+          {/* Right side: Status, Runtime, and Progress */}
+          <Box flexDirection="column" alignItems="flex-end">
+            <Box flexDirection="row" marginBottom={0}>
+              <Text bold color={statusColor}>Status:</Text>
+              <Text color={statusColor}> {status}</Text>
+              {status === 'running' && (
+                <>
+                  <Text dimColor> | </Text>
+                  <Text bold>Running:</Text>
+                  <Text> </Text>
+                  <IsolatedRunningTimer startTime={createdAt} showSeconds={true} />
+                </>
+              )}
+              {showCompletedDuration && (
+                <>
+                  <Text dimColor> | </Text>
+                  <Text bold>Duration:</Text>
+                  <Text> {formatDuration(durationMs!, true)}</Text>
+                </>
+              )}
+            </Box>
+            <Box marginTop={0}>
+              <Text>
+                {renderProgressBar(progressPercent, 30)} <Text bold color="cyan">{progressPercent}%</Text>
+              </Text>
+            </Box>
           </Box>
         </Box>
-        <Text dimColor wrap="truncate-end">{displayPrompt}</Text>
       </Box>
     </Box>
   );
@@ -160,7 +174,8 @@ const StatusBar = React.memo(function StatusBar({
     prevProps.createdAt.getTime() === nextProps.createdAt.getTime() &&
     prevProps.durationMs === nextProps.durationMs &&
     prevProps.progressPercent === nextProps.progressPercent &&
-    prevProps.prompt === nextProps.prompt
+    prevProps.taskName === nextProps.taskName &&
+    prevProps.skillName === nextProps.skillName
   );
 });
 
@@ -180,6 +195,29 @@ export function TaskDetailView() {
   // Extract only the values we need from context to minimize re-renders
   const selectedRunId = state.selectedRunId;
   const runs = state.runs;
+
+  // Load skill information for the selected run
+  const [skill, setSkill] = useState<Skill | null>(null);
+  
+  useEffect(() => {
+    if (selectedRunId) {
+      const run = runs.find(r => r.id === selectedRunId);
+      if (run?.skillId) {
+        try {
+          const skills = loadSkills(state.projectRoot);
+          const foundSkill = getSkillById(skills, run.skillId);
+          setSkill(foundSkill || null);
+        } catch (error) {
+          logger.warn('Failed to load skill for task', 'TaskDetailView', { error, skillId: run.skillId });
+          setSkill(null);
+        }
+      } else {
+        setSkill(null);
+      }
+    } else {
+      setSkill(null);
+    }
+  }, [selectedRunId, runs, state.projectRoot]);
 
   const selectedRun = useMemo(() => {
     if (!selectedRunId) {
@@ -405,9 +443,9 @@ export function TaskDetailView() {
   }, [messages, selectedRun?.status]);
 
   // Calculate visible height for chat based on terminal height
-  // Reserve: StatusBar(3) + ChatHeader(2) + ChatBottom(2) + buffer(2) = 9 lines
+  // Reserve: StatusBar(4) + ChatHeader(2) + ChatBottom(2) + buffer(2) = 10 lines
   const terminalHeight = stdout?.rows || 24;
-  const chatVisibleHeight = Math.max(5, terminalHeight - 9);
+  const chatVisibleHeight = Math.max(5, terminalHeight - 10);
 
   // Calculate visible chat lines based on scroll
   const visibleChatLines = useMemo(() => {
@@ -799,7 +837,8 @@ export function TaskDetailView() {
         createdAt={selectedRun.createdAt}
         durationMs={selectedRun.durationMs}
         progressPercent={selectedRun.progressPercent}
-        prompt={selectedRun.prompt}
+        taskName={selectedRun.name}
+        skillName={skill?.name || null}
       />
 
       {/* Two column layout: Chat (left half) | Files+Changes (right half) */}
