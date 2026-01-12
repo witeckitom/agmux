@@ -4,12 +4,13 @@ import { useSettings } from '../context/SettingsContext.js';
 import { AgentType, ThemeType, EditorType } from '../models/types.js';
 import { useApp } from '../context/AppContext.js';
 import { useInput } from 'ink';
+import { MultiLineTextInput } from '../components/MultiLineTextInput.js';
 
-type SettingsSection = 'agent' | 'appearance' | 'editor' | 'git' | 'notifications';
+type SettingsSection = 'agent' | 'appearance' | 'editor' | 'git' | 'notifications' | 'project';
 
 export function SettingsView() {
   const { settings, setAgent, setTheme, setEditor, setCustomEditorPath, setGitBranchPrefix, setPlaySounds } = useSettings();
-  const { state } = useApp();
+  const { state, database } = useApp();
   const terminalWidth = useMemo(() => process.stdout.columns || 80, []);
 
   const [currentSection, setCurrentSection] = useState<SettingsSection>('agent');
@@ -17,16 +18,19 @@ export function SettingsView() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [editingCustomPath, setEditingCustomPath] = useState(false);
   const [editingBranchPrefix, setEditingBranchPrefix] = useState(false);
+  const [editingRunCommand, setEditingRunCommand] = useState(false);
   const [customPathInput, setCustomPathInput] = useState(settings.customEditorPath);
   const [branchPrefixInput, setBranchPrefixInput] = useState(settings.gitBranchPrefix);
+  const [runCommandInput, setRunCommandInput] = useState(database.getPreference('runCommand') || '');
 
-  const sections: SettingsSection[] = ['agent', 'appearance', 'editor', 'git', 'notifications'];
+  const sections: SettingsSection[] = ['agent', 'appearance', 'editor', 'git', 'notifications', 'project'];
 
   // Reset selected index when section changes
   React.useEffect(() => {
     setSelectedIndex(0);
     setEditingCustomPath(false);
     setEditingBranchPrefix(false);
+    setEditingRunCommand(false);
     setSectionFocus(true); // Return to section focus when changing sections
   }, [currentSection]);
 
@@ -34,7 +38,8 @@ export function SettingsView() {
   React.useEffect(() => {
     setCustomPathInput(settings.customEditorPath);
     setBranchPrefixInput(settings.gitBranchPrefix);
-  }, [settings.customEditorPath, settings.gitBranchPrefix]);
+    setRunCommandInput(database.getPreference('runCommand') || '');
+  }, [settings.customEditorPath, settings.gitBranchPrefix, database]);
 
   useInput((input, key) => {
     // Escape always returns to section focus or cancels editing
@@ -54,7 +59,7 @@ export function SettingsView() {
     }
 
     // Section navigation (when sections are focused)
-    if (sectionFocus && !editingCustomPath && !editingBranchPrefix) {
+    if (sectionFocus && !editingCustomPath && !editingBranchPrefix && !editingRunCommand) {
       if (key.upArrow || input === 'k') {
         const currentIdx = sections.indexOf(currentSection);
         if (currentIdx > 0) {
@@ -81,7 +86,7 @@ export function SettingsView() {
     }
 
     // Option navigation (when options are focused)
-    if (!sectionFocus && !editingCustomPath && !editingBranchPrefix) {
+    if (!sectionFocus && !editingCustomPath && !editingBranchPrefix && !editingRunCommand) {
       if (currentSection === 'agent') {
         const agentOptions: AgentType[] = ['claude', 'cursor'];
         
@@ -165,6 +170,14 @@ export function SettingsView() {
           return;
         }
       }
+
+      if (currentSection === 'project') {
+        if (key.return) {
+          setEditingRunCommand(true);
+          setRunCommandInput(database.getPreference('runCommand') || '');
+          return;
+        }
+      }
     }
 
     // Text input handling
@@ -198,12 +211,13 @@ export function SettingsView() {
         return;
       }
 
-      if (input && input.length === 1) {
+      if (input && input.length > 0) {
         setBranchPrefixInput(prev => prev + input);
         return;
       }
     }
-  });
+
+  }, { isActive: !editingRunCommand });
 
   const renderSection = () => {
     switch (currentSection) {
@@ -217,6 +231,8 @@ export function SettingsView() {
         return renderGitSection();
       case 'notifications':
         return renderNotificationsSection();
+      case 'project':
+        return renderProjectSection();
     }
   };
 
@@ -448,6 +464,80 @@ export function SettingsView() {
         {editingBranchPrefix && (
           <Box marginTop={1} paddingX={1}>
             <Text dimColor>Type prefix, Enter to save, Esc to cancel</Text>
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
+  const renderProjectSection = () => {
+    const currentRunCommand = database.getPreference('runCommand') || '';
+    
+    return (
+      <Box flexDirection="column" flexGrow={1}>
+        <Box marginBottom={1} paddingX={1}>
+          <Text bold color="yellow">Run Command</Text>
+          <Text dimColor> - Command that gets ran when testing out changes on a git worktree in a task</Text>
+        </Box>
+        <Box flexDirection="column" paddingX={1} flexGrow={1}>
+          <Box marginBottom={0}>
+            <Text dimColor>Current command:</Text>
+          </Box>
+          <Box paddingX={2} marginTop={0} flexGrow={1}>
+            {editingRunCommand ? (
+              <Box flexDirection="column" width="100%" flexGrow={1}>
+                <MultiLineTextInput
+                  value={runCommandInput}
+                  onChange={(value) => {
+                    setRunCommandInput(value);
+                  }}
+                  onSubmit={(value) => {
+                    database.setPreference('runCommand', value);
+                    setRunCommandInput(value);
+                    setEditingRunCommand(false);
+                  }}
+                  onCancel={() => {
+                    setEditingRunCommand(false);
+                    setRunCommandInput(database.getPreference('runCommand') || '');
+                  }}
+                  placeholder="Enter your run command (multi-line supported)..."
+                  height={Math.max(15, Math.floor((process.stdout.rows || 24) * 0.5))}
+                />
+              </Box>
+            ) : (
+              <Box 
+                borderStyle="single" 
+                borderColor="gray" 
+                paddingX={1} 
+                paddingY={0}
+                flexDirection="column" 
+                minHeight={5}
+                flexGrow={1}
+                width="100%"
+              >
+                {currentRunCommand ? (
+                  <Text bold wrap="wrap">{currentRunCommand}</Text>
+                ) : (
+                  <Text bold dimColor>(not set)</Text>
+                )}
+              </Box>
+            )}
+          </Box>
+        </Box>
+        {sectionFocus && (
+          <Box marginTop={1} paddingX={1}>
+            <Text dimColor>Press Enter to edit</Text>
+          </Box>
+        )}
+        {!sectionFocus && !editingRunCommand && (
+          <Box marginTop={1} paddingX={1}>
+            <Text dimColor>Press Enter to edit, Esc to return</Text>
+          </Box>
+        )}
+        {editingRunCommand && (
+          <Box marginTop={1} paddingX={1} flexDirection="column">
+            <Text dimColor>Enter = new line (press twice to save) | Esc = cancel</Text>
+            <Text dimColor>Multi-line commands supported - paste your script here</Text>
           </Box>
         )}
       </Box>

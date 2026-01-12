@@ -67,6 +67,12 @@ export function useKeyboard() {
       return;
     }
 
+    // In settings view, only allow command mode - skip other keys
+    // (SettingsView handles its own navigation)
+    if (state.currentView === 'settings' && !state.commandMode && input !== ':') {
+      return;
+    }
+
     // Confirmation dialog handling (takes priority)
     if (state.confirmation) {
       if (input === 'y' || input === 'Y' || key.return) {

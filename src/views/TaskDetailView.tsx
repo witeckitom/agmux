@@ -7,6 +7,7 @@ import { Message, Run } from '../models/types.js';
 import { getChangedFiles, getFileDiff, ChangedFile, createCommit } from '../utils/gitUtils.js';
 import { join } from 'path';
 import { existsSync, readdirSync } from 'fs';
+import { spawn } from 'child_process';
 
 // Animated spinner for progress indication
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -696,6 +697,79 @@ export function TaskDetailView() {
                 }
               );
             }
+          }
+        );
+      }
+      return;
+    }
+
+    // Shift+R to run test command
+    if (key.shift && (input === 'r' || input === 'R')) {
+      if (!selectedRun) {
+        logger.warn('No task selected for running test command', 'TaskDetailView');
+        return;
+      }
+
+      // Resolve worktree path
+      const worktreePath = resolveWorktreePath(selectedRun.id, selectedRun.worktreePath);
+      
+      // Check if worktree exists
+      if (!worktreePath || worktreePath.trim() === '' || !existsSync(worktreePath)) {
+        showConfirmation(
+          'No worktree found for this task. Cannot run test command.',
+          () => {
+            // Just close the dialog
+          }
+        );
+        return;
+      }
+
+      // Get run command from database
+      const runCommand = database.getPreference('runCommand');
+      if (!runCommand || runCommand.trim() === '') {
+        showConfirmation(
+          'No run command configured. Please set it in Settings > Project.',
+          () => {
+            // Just close the dialog
+          }
+        );
+        return;
+      }
+
+      // Execute the command in the worktree directory
+      try {
+        logger.info(`Running test command in worktree: ${worktreePath}`, 'TaskDetailView', { command: runCommand });
+
+        // Run the command as a shell script from the worktree directory
+        const childProcess = spawn(runCommand, {
+          cwd: worktreePath,
+          stdio: 'inherit',
+          shell: true,
+        });
+
+        childProcess.on('error', (error) => {
+          logger.error(`Failed to run test command`, 'TaskDetailView', { error, command: runCommand });
+          showConfirmation(
+            `Failed to run test command: ${error.message || 'Unknown error'}`,
+            () => {
+              // Just close the dialog
+            }
+          );
+        });
+
+        childProcess.on('exit', (code) => {
+          if (code === 0) {
+            logger.info(`Test command completed successfully`, 'TaskDetailView');
+          } else {
+            logger.warn(`Test command exited with code ${code}`, 'TaskDetailView');
+          }
+        });
+      } catch (error: any) {
+        logger.error(`Error running test command`, 'TaskDetailView', { error, command: runCommand });
+        showConfirmation(
+          `Error running test command: ${error.message || 'Unknown error'}`,
+          () => {
+            // Just close the dialog
           }
         );
       }
