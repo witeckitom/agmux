@@ -9,6 +9,7 @@ export type RunPhase =
 
 export interface Run {
   id: string;
+  name: string | null;
   status: RunStatus;
   phase: RunPhase;
   worktreePath: string;

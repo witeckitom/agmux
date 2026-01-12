@@ -1,6 +1,7 @@
 -- Runs/Tasks table
 CREATE TABLE IF NOT EXISTS runs (
     id TEXT PRIMARY KEY,
+    name TEXT,
     status TEXT NOT NULL,
     phase TEXT NOT NULL,
     worktree_path TEXT NOT NULL,

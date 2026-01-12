@@ -4,6 +4,7 @@ import { Run, Message } from '../models/types.js';
 import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
 import { EventEmitter } from 'events';
+import { parseAndUpdateProgress } from '../utils/progressParser.js';
 
 interface TaskState {
   abortController: AbortController | null;
@@ -74,7 +75,9 @@ export class ClaudeAgent implements Agent {
       let fullContent = '';
       let assistantMessageId: string | null = null;
       let lastSaveTime = Date.now();
+      let lastProgressCheck = Date.now();
       const SAVE_INTERVAL_MS = 500;
+      const PROGRESS_CHECK_INTERVAL_MS = 1000; // Check for progress updates every second
 
       for await (const event of stream) {
         if (event.type === 'content_block_delta' && 'text' in event.delta) {
@@ -98,6 +101,12 @@ export class ClaudeAgent implements Agent {
             this.database.updateMessage(assistantMessageId, fullContent);
             lastSaveTime = now;
           }
+
+          // Check for progress updates periodically
+          if (now - lastProgressCheck > PROGRESS_CHECK_INTERVAL_MS) {
+            parseAndUpdateProgress(this.database, runId, fullContent);
+            lastProgressCheck = now;
+          }
         } else if (event.type === 'message_stop') {
           // Final save of assistant message
           if (assistantMessageId) {
@@ -112,6 +121,9 @@ export class ClaudeAgent implements Agent {
             };
             this.database.createMessage(assistantMessage);
           }
+          
+          // Final progress check
+          parseAndUpdateProgress(this.database, runId, fullContent);
           
           // Mark as waiting for input instead of removing
           const task = this.runningTasks.get(runId);

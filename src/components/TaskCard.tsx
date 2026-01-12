@@ -66,12 +66,13 @@ function IsolatedCardTimer({ startTime, showSeconds = false }: { startTime: Date
 export const TaskCard = React.memo(function TaskCard({ run, selected = false, width = 45 }: TaskCardProps) {
   const progressBarWidth = Math.max(8, width - 6); // Account for padding, minimum 8 chars
   const progressBar = renderProgressBar(run.progressPercent, progressBarWidth);
-  const promptDisplay = run.prompt || 'No prompt';
-  const maxPromptLength = Math.max(10, width - 4);
-  const truncatedPrompt =
-    promptDisplay.length > maxPromptLength
-      ? promptDisplay.slice(0, maxPromptLength - 3) + '...'
-      : promptDisplay;
+  // Use name if available, otherwise fall back to prompt or ID
+  const displayText = run.name || run.prompt || run.id.slice(0, 8);
+  const maxDisplayLength = Math.max(10, width - 4);
+  const truncatedDisplay =
+    displayText.length > maxDisplayLength
+      ? displayText.slice(0, maxDisplayLength - 3) + '...'
+      : displayText;
 
   const showProgress = run.status === 'running';
   const isCompleted = run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled';
@@ -93,7 +94,7 @@ export const TaskCard = React.memo(function TaskCard({ run, selected = false, wi
         </Text>
       </Box>
       <Box marginBottom={0} height={2}>
-        <Text wrap="truncate">{truncatedPrompt}</Text>
+        <Text wrap="truncate">{truncatedDisplay}</Text>
       </Box>
       <Box marginBottom={0} height={1}>
         <Text dimColor>

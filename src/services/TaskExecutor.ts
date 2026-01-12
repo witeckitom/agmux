@@ -5,6 +5,7 @@ import { ClaudeAgent } from '../agents/ClaudeAgent.js';
 import { CursorAgent } from '../agents/CursorAgent.js';
 import { createWorktree, removeWorktree } from '../utils/gitWorktree.js';
 import { logger } from '../utils/logger.js';
+import { injectSkillPersona } from '../utils/skillInjector.js';
 
 interface TaskInfo {
   agent: Agent;
@@ -19,10 +20,12 @@ export class TaskExecutor {
   private updateTimeout: NodeJS.Timeout | null = null;
   // HARD LOCK: Prevent concurrent startTask calls for same runId
   private startingTasks: Set<string> = new Set();
+  private projectRoot?: string;
 
-  constructor(database: DatabaseManager, onUpdate?: () => void) {
+  constructor(database: DatabaseManager, onUpdate?: () => void, projectRoot?: string) {
     this.database = database;
     this.onUpdate = onUpdate;
+    this.projectRoot = projectRoot;
   }
 
   private notifyUpdate(): void {
@@ -95,8 +98,12 @@ export class TaskExecutor {
     logger.info(`LOCK ACQUIRED (TaskExecutor): Starting task ${runId}`, 'TaskExecutor');
 
     try {
-      // Get agent type from parameter, settings, or default
+      // Get agent type from parameter, run's agentProfileId (if it's a valid agent type), settings, or default
+      const runAgentType = (run.agentProfileId === 'claude' || run.agentProfileId === 'cursor') 
+        ? run.agentProfileId as AgentType 
+        : null;
       const selectedAgentType = agentType || 
+        runAgentType ||
         (this.database.getPreference('agent') as AgentType) || 
         'claude';
 
@@ -132,13 +139,22 @@ export class TaskExecutor {
         throw new Error(`Run ${runId} not found after update`);
       }
 
+      // Inject skill persona into prompt if this is the first run
+      const promptWithSkill = injectSkillPersona(this.database, updatedRun, this.projectRoot);
+      
+      // Create a modified run object with the injected prompt
+      const runWithSkill: Run = {
+        ...updatedRun,
+        prompt: promptWithSkill,
+      };
+
       // Get the agent
       const agent = this.getAgent(selectedAgentType);
       this.runningTasks.set(runId, { agent, agentType: selectedAgentType });
 
-      // Start the agent with the updated run object
+      // Start the agent with the run object that has skill injected
       await agent.startTask(
-        updatedRun,
+        runWithSkill,
         (content: string) => {
           // On message - notify UI to refresh (no logging - too noisy)
           this.notifyUpdate();

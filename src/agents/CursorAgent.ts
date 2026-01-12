@@ -6,6 +6,7 @@ import { Agent } from './Agent.js';
 import { Run, Message } from '../models/types.js';
 import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
+import { parseAndUpdateProgress } from '../utils/progressParser.js';
 
 interface TaskState {
   process: ChildProcess | null;
@@ -240,6 +241,12 @@ export class CursorAgent implements Agent {
                 this.database.updateMessage(assistantMessageId, assistantContent);
                 lastSaveTime = now;
               }
+
+              // Check for progress updates periodically
+              if (now - lastProgressCheck > PROGRESS_CHECK_INTERVAL_MS) {
+                parseAndUpdateProgress(this.database, run.id, assistantContent);
+                lastProgressCheck = now;
+              }
             } else if (json.type === 'thinking' && json.text) {
               // Could show thinking indicator
               logger.debug(`Thinking: ${json.text.substring(0, 50)}...`, 'CursorAgent');
@@ -278,6 +285,11 @@ export class CursorAgent implements Agent {
             createdAt: new Date(),
           };
           this.database.createMessage(assistantMessage);
+        }
+
+        // Final progress check
+        if (assistantContent.trim()) {
+          parseAndUpdateProgress(this.database, run.id, assistantContent.trim());
         }
 
         taskState.process = null;
@@ -375,7 +387,9 @@ export class CursorAgent implements Agent {
       let assistantContent = '';
       let assistantMessageId: string | null = null;
       let lastSaveTime = Date.now();
+      let lastProgressCheck = Date.now();
       const SAVE_INTERVAL_MS = 200;
+      const PROGRESS_CHECK_INTERVAL_MS = 1000;
 
       let buffer = '';
       childProcess.stdout?.on('data', (data: Buffer) => {
@@ -414,6 +428,12 @@ export class CursorAgent implements Agent {
                 this.database.updateMessage(assistantMessageId, assistantContent);
                 lastSaveTime = now;
               }
+
+              // Check for progress updates periodically
+              if (now - lastProgressCheck > PROGRESS_CHECK_INTERVAL_MS) {
+                parseAndUpdateProgress(this.database, runId, assistantContent);
+                lastProgressCheck = now;
+              }
             }
           } catch {
             // Non-JSON output
@@ -437,6 +457,11 @@ export class CursorAgent implements Agent {
             createdAt: new Date(),
           };
           this.database.createMessage(assistantMessage);
+        }
+
+        // Final progress check
+        if (assistantContent.trim()) {
+          parseAndUpdateProgress(this.database, runId, assistantContent.trim());
         }
 
         existingTask.process = null;

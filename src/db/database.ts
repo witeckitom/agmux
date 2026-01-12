@@ -28,6 +28,18 @@ export class DatabaseManager {
         // Log other errors but don't fail
       }
     }
+
+    // Migrate existing databases: add name column if it doesn't exist
+    try {
+      this.db.exec(`
+        ALTER TABLE runs ADD COLUMN name TEXT;
+      `);
+    } catch (error: any) {
+      // Column already exists or other error - ignore
+      if (!error.message?.includes('duplicate column')) {
+        // Log other errors but don't fail
+      }
+    }
   }
 
   // Run operations
@@ -38,13 +50,14 @@ export class DatabaseManager {
     this.db
       .prepare(
         `INSERT INTO runs (
-          id, status, phase, worktree_path, base_branch, agent_profile_id,
+          id, name, status, phase, worktree_path, base_branch, agent_profile_id,
           conversation_id, skill_id, prompt, progress_percent, total_subtasks,
           completed_subtasks, ready_to_act, created_at, updated_at, completed_at, duration_ms, retain_worktree
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
+        run.name ?? null,
         run.status,
         run.phase,
         run.worktreePath,
@@ -116,6 +129,10 @@ export class DatabaseManager {
                          currentRun && 
                          currentRun.status === 'running';
 
+    if (updates.name !== undefined) {
+      setParts.push('name = ?');
+      values.push(updates.name ?? null);
+    }
     if (updates.status !== undefined) {
       setParts.push('status = ?');
       values.push(updates.status);
@@ -189,6 +206,7 @@ export class DatabaseManager {
   private mapRowToRun(row: any): Run {
     return {
       id: row.id,
+      name: row.name ?? null,
       status: row.status as Run['status'],
       phase: row.phase as Run['phase'],
       worktreePath: row.worktree_path,

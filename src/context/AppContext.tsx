@@ -111,7 +111,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
       if (refreshRunsRef.current) {
         refreshRunsRef.current();
       }
-    })
+    }, projectRoot)
   ).current;
 
   const [state, setState] = useState<AppState>({
