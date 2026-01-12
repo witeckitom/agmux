@@ -126,4 +126,42 @@ describe('TopBar', () => {
     expect(output).toContain('Shift+H');
     expect(output).toContain('help');
   });
+
+  it('should align the project/branch/view line with the top of the logo', () => {
+    const { lastFrame } = render(
+      <AppProvider database={db} projectRoot="/path/to/my-project">
+        <TopBar />
+      </AppProvider>
+    );
+
+    const output = lastFrame();
+    const lines = output.split('\n');
+    
+    // Find the line with the logo's first line (starts with "_____")
+    let logoFirstLineIndex = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('_____     ____')) {
+        logoFirstLineIndex = i;
+        break;
+      }
+    }
+    
+    expect(logoFirstLineIndex).toBeGreaterThan(-1);
+    
+    // Find the line with "Project:" text
+    let projectLineIndex = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('Project:') && lines[i].includes('Branch:') && lines[i].includes('View:')) {
+        projectLineIndex = i;
+        break;
+      }
+    }
+    
+    expect(projectLineIndex).toBeGreaterThan(-1);
+    
+    // The project line should be on the same line as the logo's first line
+    // Both should start at the same vertical position after the border and padding
+    // With paddingY={1} and alignItems="flex-start", both should align at the top
+    expect(projectLineIndex).toBe(logoFirstLineIndex);
+  });
 });

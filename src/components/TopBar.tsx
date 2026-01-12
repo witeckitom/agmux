@@ -75,7 +75,6 @@ export const TopBar = React.memo(function TopBar() {
   const contextDisplay = storeData.currentView;
   const runningCount = storeData.runningCount;
 
-  const navBarHeight = 8; // Height for medium logo + padding
   // Read logo from file - try src/agmux_logo relative to project root
   const logoLines = useMemo(() => {
     try {
@@ -88,17 +87,24 @@ export const TopBar = React.memo(function TopBar() {
     }
   }, [storeData.projectRoot]);
 
+  // Calculate min height based on logo lines + padding
+  // paddingTop={1} and paddingBottom={1} add 2 lines total
+  // Add extra buffer to account for border and prevent clipping
+  const navBarMinHeight = logoLines.length > 0 ? logoLines.length + 3 : 8;
+
   return (
     <Box 
       width={terminalWidth}
       borderStyle="single" 
       borderBottom={true} 
-      height={navBarHeight}
+      minHeight={navBarMinHeight}
       flexDirection="row"
-      paddingY={1}
+      paddingTop={1}
+      paddingBottom={1}
+      alignItems="flex-start"
     >
       {/* Left side - logo */}
-      <Box paddingX={1} justifyContent="flex-start" alignItems="flex-start" flexDirection="column" paddingY={0}>
+      <Box paddingX={1} flexDirection="column">
         {logoLines.map((line, index) => (
           <Text key={index} color="cyan">
             {line}
@@ -106,20 +112,18 @@ export const TopBar = React.memo(function TopBar() {
         ))}
       </Box>
       {/* Right side - content */}
-      <Box flexDirection="column" flexGrow={1} justifyContent="flex-start" paddingY={0}>
-        <Box flexDirection="row" paddingY={0}>
-          <Box paddingX={1} paddingY={0} flexGrow={1}>
-            <Text>
-              <Text bold color="cyan">Project:</Text> {projectName} |{' '}
-              <Text bold color="cyan">Branch:</Text> {gitBranch} |{' '}
-              <Text bold color="cyan">View:</Text> {contextDisplay}
-            </Text>
-          </Box>
-          <Box paddingX={1} paddingY={0}>
-            <Text dimColor>
-              {runningCount} running | <Text bold>Shift+H</Text> help
-            </Text>
-          </Box>
+      <Box flexDirection="row" flexGrow={1} paddingX={1} alignItems="flex-start">
+        <Box paddingX={1} paddingY={0} flexGrow={1}>
+          <Text>
+            <Text bold color="cyan">Project:</Text> {projectName} |{' '}
+            <Text bold color="cyan">Branch:</Text> {gitBranch} |{' '}
+            <Text bold color="cyan">View:</Text> {contextDisplay}
+          </Text>
+        </Box>
+        <Box paddingX={1} paddingY={0}>
+          <Text dimColor>
+            {runningCount} running | <Text bold>Shift+H</Text> help
+          </Text>
         </Box>
       </Box>
     </Box>
