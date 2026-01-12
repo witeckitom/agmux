@@ -102,4 +102,28 @@ describe('TopBar', () => {
     // Check if it contains either "1 running" or the number
     expect(cleanOutput.includes('1 running') || cleanOutput.includes('running')).toBe(true);
   });
+
+  it('should display the AGMuX logo on the right side', () => {
+    const { lastFrame } = render(
+      <AppProvider database={db} projectRoot="/path/to/my-project">
+        <TopBar />
+      </AppProvider>
+    );
+
+    const output = lastFrame();
+    // Check for logo characters - the full ASCII logo contains block characters
+    expect(output).toMatch(/[█╗╔╝╚═]/);
+  });
+
+  it('should display help shortcut in the top bar', () => {
+    const { lastFrame } = render(
+      <AppProvider database={db} projectRoot="/path/to/my-project">
+        <TopBar />
+      </AppProvider>
+    );
+
+    const output = lastFrame();
+    expect(output).toContain('Shift+H');
+    expect(output).toContain('help');
+  });
 });

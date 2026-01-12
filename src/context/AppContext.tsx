@@ -22,6 +22,7 @@ interface AppState {
   commandMode: boolean;
   commandInput: string;
   logsVisible: boolean;
+  helpVisible: boolean;
   projectRoot: string;
   currentBranch?: string;
   confirmation: ConfirmationState | null;
@@ -41,6 +42,7 @@ interface AppContextValue {
   setCommandInput: (input: string) => void;
   setLogsVisible: (visible: boolean) => void;
   toggleLogs: () => void;
+  toggleHelp: () => void;
   executeCommand: (command: string) => void;
   showConfirmation: (message: string, onConfirm: () => void, onCancel?: () => void) => void;
   hideConfirmation: () => void;
@@ -121,6 +123,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     commandMode: false,
     commandInput: '',
     logsVisible: false,
+    helpVisible: false,
     projectRoot,
     currentBranch: undefined,
     confirmation: null,
@@ -169,6 +172,10 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
 
   const toggleLogs = useCallback(() => {
     setState(prev => ({ ...prev, logsVisible: !prev.logsVisible }));
+  }, []);
+
+  const toggleHelp = useCallback(() => {
+    setState(prev => ({ ...prev, helpVisible: !prev.helpVisible }));
   }, []);
 
   const executeCommand = useCallback(
@@ -642,6 +649,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     setCommandInput,
     setLogsVisible,
     toggleLogs,
+    toggleHelp,
     executeCommand,
     showConfirmation,
     hideConfirmation,
@@ -667,6 +675,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     setCommandInput,
     setLogsVisible,
     toggleLogs,
+    toggleHelp,
     executeCommand,
     showConfirmation,
     hideConfirmation,

@@ -42,6 +42,7 @@ export function useKeyboard() {
     executeCommand,
     refreshRuns,
     toggleLogs,
+    toggleHelp,
     deleteRun,
     hideConfirmation,
     setCurrentView,
@@ -133,6 +134,13 @@ export function useKeyboard() {
       return;
     }
 
+    // Handle Shift+H for help toggle
+    if (key.shift && (input === 'h' || input === 'H')) {
+      logger.info('Toggling help visibility', 'Keyboard');
+      toggleHelp();
+      return;
+    }
+
     // Normal mode handling
     if (input === ':') {
       logger.debug('Entering command mode', 'Keyboard');
@@ -146,6 +154,11 @@ export function useKeyboard() {
         logger.debug('Returning to tasks view', 'Keyboard');
         setCurrentView('tasks');
         setSelectedRunId(null);
+        return;
+      }
+      // Close help if visible, otherwise close detail pane or cancel action
+      if (state.helpVisible) {
+        toggleHelp();
         return;
       }
       // Close detail pane or cancel action

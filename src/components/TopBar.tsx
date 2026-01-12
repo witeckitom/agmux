@@ -1,8 +1,7 @@
 import React, { useEffect, useState, useMemo, useSyncExternalStore } from 'react';
 import { Box, Text } from 'ink';
 import { execSync } from 'child_process';
-import { getViewCommands } from '../utils/viewCommands.js';
-import { ViewType } from '../models/types.js';
+import { AMUX_LOGO_MEDIUM } from '../utils/amuxLogo.js';
 
 // External store for TopBar data - only updates when relevant data changes
 let topBarStore: {
@@ -74,9 +73,9 @@ export const TopBar = React.memo(function TopBar() {
   const projectName = storeData.projectRoot.split('/').pop() || 'unknown';
   const contextDisplay = storeData.currentView;
   const runningCount = storeData.runningCount;
-  const viewCommands = useMemo(() => getViewCommands(storeData.currentView as ViewType), [storeData.currentView]);
 
-  const navBarHeight = viewCommands.length > 0 && !storeData.commandMode ? 5 : 4;
+  const navBarHeight = 6; // Height for medium logo
+  const logoLines = AMUX_LOGO_MEDIUM.split('\n');
 
   return (
     <Box 
@@ -87,35 +86,29 @@ export const TopBar = React.memo(function TopBar() {
       flexDirection="row"
     >
       {/* Left side - content */}
-      <Box flexDirection="column" flexGrow={1}>
-        <Box flexDirection="row">
-          <Box paddingX={1} flexGrow={1}>
+      <Box flexDirection="column" flexGrow={1} justifyContent="flex-start" paddingY={0}>
+        <Box flexDirection="row" paddingY={0}>
+          <Box paddingX={1} paddingY={0} flexGrow={1}>
             <Text>
               <Text bold color="cyan">Project:</Text> {projectName} |{' '}
               <Text bold color="cyan">Branch:</Text> {gitBranch} |{' '}
               <Text bold color="cyan">View:</Text> {contextDisplay}
             </Text>
           </Box>
-          <Box paddingX={1}>
+          <Box paddingX={1} paddingY={0}>
             <Text dimColor>
-              {runningCount} running | <Text bold>:</Text> nav | <Text bold>Shift+L</Text> logs
+              {runningCount} running | <Text bold>Shift+H</Text> help
             </Text>
           </Box>
         </Box>
-        {viewCommands.length > 0 && !storeData.commandMode && (
-          <Box paddingX={1} paddingY={0}>
-            <Text dimColor>
-              {viewCommands.map((cmd, index) => (
-                <Text key={cmd.key}>
-                  {index > 0 && ' | '}
-                  <Text bold color="yellow">{cmd.key}</Text>
-                  {' - '}
-                  {cmd.description}
-                </Text>
-              ))}
-            </Text>
-          </Box>
-        )}
+      </Box>
+      {/* Right side - logo */}
+      <Box paddingX={1} justifyContent="flex-start" alignItems="flex-end" flexDirection="column" paddingY={0}>
+        {logoLines.map((line, index) => (
+          <Text key={index} color="cyan">
+            {line}
+          </Text>
+        ))}
       </Box>
     </Box>
   );

@@ -9,6 +9,7 @@ import { setCurrentViewExternal } from '../components/ViewRouter.js';
 import { CommandMode } from '../components/CommandMode.js';
 import { LogView } from '../components/LogView.js';
 import { ConfirmationDialog } from '../components/ConfirmationDialog.js';
+import { HelpView } from '../components/HelpView.js';
 import { MergeBranchPromptView } from '../views/MergeBranchPromptView.js';
 import { KeyboardHandler } from '../components/KeyboardHandler.js';
 import { SplashScreen } from '../components/SplashScreen.js';
@@ -35,6 +36,7 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
   // Only read what we need - don't destructure state to avoid subscribing to all changes
   const commandMode = appContext.state.commandMode;
   const logsVisible = appContext.state.logsVisible;
+  const helpVisible = appContext.state.helpVisible;
   const mergePrompt = appContext.state.mergePrompt;
   const confirmation = appContext.state.confirmation;
   const currentView = appContext.state.currentView;
@@ -87,7 +89,7 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
 
   // Calculate heights for layout - memoize to prevent recalculation
   const layoutHeights = useMemo(() => {
-    const topBarHeight = 5; // TopBar with ASCII logo
+    const topBarHeight = 6; // TopBar with smaller ASCII logo
     const commandModeHeight = commandMode ? 3 : 0;
     const mainViewHeight = Math.max(
       1,
@@ -130,6 +132,16 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
                 onConfirm={confirmation.onConfirm}
                 onCancel={confirmation.onCancel}
               />
+            </Box>
+          );
+        }
+
+        // If help is visible, show help overlay
+        if (helpVisible) {
+          return (
+            <Box flexDirection="column" height={terminalDimensions.height}>
+              <KeyboardHandler />
+              <HelpView onClose={() => appContext.toggleHelp()} />
             </Box>
           );
         }
