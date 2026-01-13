@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useMemo, useSyncExternalStore } from 'react';
 import { Box, Text } from 'ink';
 import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 // External store for TopBar data - only updates when relevant data changes
 let topBarStore: {
@@ -74,17 +75,31 @@ export const TopBar = React.memo(function TopBar() {
   const contextDisplay = storeData.currentView;
   const runningCount = storeData.runningCount;
 
-  // Read logo from file - try src/agmux_logo relative to project root
+  // Read logo from file - try agmux installation directory, not project directory
   const logoLines = useMemo(() => {
     try {
-      const logoPath = join(storeData.projectRoot, 'src', 'agmux_logo');
-      const logoContent = readFileSync(logoPath, 'utf-8').trim();
-      return logoContent.split('\n');
+      // Get the directory where this module is located
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      // Try to find logo relative to the dist directory (when built) or src (when running with tsx)
+      const possiblePaths = [
+        join(__dirname, '..', 'agmux_logo'), // When running from dist/components/
+        join(__dirname, '..', '..', 'src', 'agmux_logo'), // When running from dist/
+        join(__dirname, 'agmux_logo'), // When running from src/components/ (development)
+      ];
+      
+      for (const logoPath of possiblePaths) {
+        if (existsSync(logoPath)) {
+          const logoContent = readFileSync(logoPath, 'utf-8').trim();
+          return logoContent.split('\n');
+        }
+      }
+      return [];
     } catch {
       // Fallback to empty array if file can't be read
       return [];
     }
-  }, [storeData.projectRoot]);
+  }, []);
 
   // Calculate min height based on logo lines + padding
   // paddingTop={1} and paddingBottom={1} add 2 lines total

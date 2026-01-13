@@ -21,8 +21,17 @@ try {
 // Enter alternate screen buffer for fullscreen app
 const enterAltScreenCommand = '\x1b[?1049h';
 const leaveAltScreenCommand = '\x1b[?1049l';
-// Enter alt screen, clear it, and move cursor to top-left
-process.stdout.write(enterAltScreenCommand + '\x1b[2J\x1b[H');
+
+// Clear scrollback buffer and screen, then enter alternate screen
+// \x1b[3J - Clear scrollback buffer (works on most modern terminals)
+// \x1b[2J - Clear entire screen
+// \x1b[H - Move cursor to top-left
+// \x1b[?1049h - Enter alternate screen buffer
+process.stdout.write('\x1b[3J\x1b[2J\x1b[H' + enterAltScreenCommand);
+
+// Also clear stderr to prevent any error messages from appearing in scrollback
+process.stderr.write('\x1b[3J\x1b[2J\x1b[H');
+
 process.on('exit', () => {
   process.stdout.write(leaveAltScreenCommand);
 });

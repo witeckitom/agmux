@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Box, Text } from 'ink';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 interface SplashScreenProps {
   version: string;
@@ -11,12 +12,25 @@ interface SplashScreenProps {
 export function SplashScreen({ version, onComplete }: SplashScreenProps) {
   const [visible, setVisible] = useState(true);
 
-  // Read logo from file - try src/agmux_logo relative to project root
+  // Read logo from file - try agmux installation directory, not project directory
   const logoContent = useMemo(() => {
     try {
-      const projectRoot = process.cwd();
-      const logoPath = join(projectRoot, 'src', 'agmux_logo');
-      return readFileSync(logoPath, 'utf-8').trim();
+      // Get the directory where this module is located
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      // Try to find logo relative to the dist directory (when built) or src (when running with tsx)
+      const possiblePaths = [
+        join(__dirname, '..', 'agmux_logo'), // When running from dist/components/
+        join(__dirname, '..', '..', 'src', 'agmux_logo'), // When running from dist/
+        join(__dirname, 'agmux_logo'), // When running from src/components/ (development)
+      ];
+      
+      for (const logoPath of possiblePaths) {
+        if (existsSync(logoPath)) {
+          return readFileSync(logoPath, 'utf-8').trim();
+        }
+      }
+      return '';
     } catch {
       // Fallback to empty string if file can't be read
       return '';

@@ -17,13 +17,38 @@ import { TestingBanner } from '../components/TestingBanner.js';
 import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
 import { isWorktreeBranch } from '../utils/gitUtils.js';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { ServiceManager } from '../services/api/ServiceManager.js';
 
-// Read version from package.json
-const packageJsonPath = join(process.cwd(), 'package.json');
-const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+// Read version from agmux's own package.json (not the project's package.json)
+// Get the directory where this module is located
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+// Try to find package.json relative to the dist directory (when built) or src (when running with tsx)
+const possiblePaths = [
+  join(__dirname, '..', 'package.json'), // When running from dist/app/
+  join(__dirname, '..', '..', 'package.json'), // When running from dist/
+  join(process.cwd(), 'package.json'), // Fallback to project root (for development)
+];
+
+let packageJson: { version: string } = { version: '0.0.0' };
+for (const path of possiblePaths) {
+  if (existsSync(path)) {
+    try {
+      const content = readFileSync(path, 'utf-8');
+      const parsed = JSON.parse(content);
+      // Only use it if it's actually agmux's package.json (check name field)
+      if (parsed.name === 'agmux') {
+        packageJson = parsed;
+        break;
+      }
+    } catch {
+      // Continue to next path if this one fails
+    }
+  }
+}
 
 interface AppContentProps {
   database: DatabaseManager;
