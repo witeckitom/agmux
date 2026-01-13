@@ -55,7 +55,6 @@ export const TopBar = React.memo(function TopBar() {
   // Use external store instead of context to avoid re-renders on unrelated changes
   const storeData = useSyncExternalStore(subscribeToTopBar, getTopBarSnapshot);
   const [gitBranch, setGitBranch] = useState<string>('main');
-  const terminalWidth = useMemo(() => process.stdout.columns || 80, []);
 
   useEffect(() => {
     // Try to get current git branch
@@ -94,13 +93,14 @@ export const TopBar = React.memo(function TopBar() {
 
   return (
     <Box 
-      width={terminalWidth}
+      width="100%"
       borderStyle="single" 
       borderBottom={true} 
       minHeight={navBarMinHeight}
       flexDirection="column"
       paddingTop={1}
       paddingBottom={1}
+      flexShrink={0}
     >
       {/* Main row: logo on left, flex box on right */}
       <Box flexDirection="row" paddingX={1} alignItems="flex-start">

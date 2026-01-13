@@ -32,7 +32,6 @@ function getAutocompleteSuggestion(input: string): string | null {
 // Takes commandMode as prop to avoid subscribing to entire context
 export const CommandMode = React.memo(function CommandMode({ isCommandMode }: { isCommandMode: boolean }) {
   const { getCommandInput, renderCommandInput } = useInputContext();
-  const terminalWidth = useMemo(() => process.stdout.columns || 80, []);
   const inputRef = useRef<string>('');
   const [inputVersion, setInputVersion] = useState(0);
   const commandModeRef = useRef(isCommandMode);
@@ -86,14 +85,16 @@ export const CommandMode = React.memo(function CommandMode({ isCommandMode }: { 
 
   return (
     <Box 
-      width={terminalWidth}
+      width="100%"
       borderStyle="single" 
       borderBottom={true}
       height={3}
       flexDirection="row"
       alignItems="center"
+      paddingX={1}
+      flexShrink={0}
     >
-      <Box paddingX={1} flexGrow={1}>
+      <Box flexGrow={1} minWidth={0}>
         <Text>
           <Text color="yellow" bold>:</Text>
           <Text>{displayInput}</Text>
@@ -105,7 +106,7 @@ export const CommandMode = React.memo(function CommandMode({ isCommandMode }: { 
           <Text color="gray">█</Text>
         </Text>
       </Box>
-      <Box paddingX={1}>
+      <Box paddingLeft={1} flexShrink={0}>
         <Text dimColor>
           {suggestion ? 'Tab: complete' : ''} Enter: execute | Esc: cancel
         </Text>
