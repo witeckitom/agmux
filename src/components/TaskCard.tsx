@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { Run } from '../models/types.js';
 import { Spinner } from './Spinner.js';
+import { useApp } from '../context/AppContext.js';
+import { loadSkills, getSkillById } from '../utils/skillsLoader.js';
 
 interface TaskCardProps {
   run: Run;
@@ -65,10 +67,30 @@ function IsolatedCardTimer({ startTime, showSeconds = false }: { startTime: Date
 }
 
 export const TaskCard = React.memo(function TaskCard({ run, selected = false, width = 45 }: TaskCardProps) {
-  const progressBarWidth = Math.max(8, width - 6); // Account for padding, minimum 8 chars
+  const { state } = useApp();
+  const [skillName, setSkillName] = useState<string | null>(null);
+
+  // Load skill name if skillId is present
+  useEffect(() => {
+    if (run.skillId) {
+      try {
+        const skills = loadSkills(state.projectRoot);
+        const skill = getSkillById(skills, run.skillId);
+        setSkillName(skill?.name || null);
+      } catch {
+        setSkillName(null);
+      }
+    } else {
+      setSkillName(null);
+    }
+  }, [run.skillId, state.projectRoot]);
+
+  // Calculate progress bar width: account for padding (2), percentage (~5 chars), spinner (1 char), margins (2)
+  // Use flexbox to auto-fit, but ensure minimum width
+  const progressBarWidth = Math.max(12, width - 12); // Account for percentage, spinner, and spacing
   const progressBar = renderProgressBar(run.progressPercent, progressBarWidth);
-  // Use name if available, otherwise fall back to prompt or ID
-  const displayText = run.name || run.prompt || run.id.slice(0, 8);
+  // Use name if available, otherwise fall back to prompt
+  const displayText = run.name || run.prompt || 'Untitled Task';
   const maxDisplayLength = Math.max(10, width - 4);
   const truncatedDisplay =
     displayText.length > maxDisplayLength
@@ -88,45 +110,69 @@ export const TaskCard = React.memo(function TaskCard({ run, selected = false, wi
       paddingX={1}
       paddingY={0}
       borderColor={selected ? 'cyan' : 'gray'}
+      justifyContent="space-between"
     >
-      <Box marginBottom={0} height={1}>
-        <Text bold color={selected ? 'cyan' : 'white'}>
-          {run.id.slice(0, 8)}
-        </Text>
-      </Box>
-      <Box marginBottom={0} height={2}>
-        <Text wrap="truncate">{truncatedDisplay}</Text>
-      </Box>
-      <Box marginBottom={0} height={1}>
-        <Text dimColor>
-          {formatPhase(run.phase)}
-        </Text>
-      </Box>
-      {isRunning && (
-        <Box marginBottom={0} height={1}>
-          <Text>
-            <Spinner active={isRunning} /> {progressBar} <Text bold color="cyan">{run.progressPercent}%</Text>
+      {/* Top content */}
+      <Box flexDirection="column">
+        {/* Name on left, Persona on right - using flexbox */}
+        <Box marginBottom={0} height={1} flexDirection="row" justifyContent="space-between" alignItems="center">
+          <Box flexGrow={1}>
+            <Text bold color={selected ? 'cyan' : 'white'}>
+              {truncatedDisplay}
+            </Text>
+          </Box>
+          {skillName && (
+            <Box marginLeft={1}>
+              <Text color="yellow">
+                {skillName}
+              </Text>
+            </Box>
+          )}
+        </Box>
+        <Box marginTop={0} height={1}>
+          <Text dimColor>
+            {run.completedSubtasks}/{run.totalSubtasks} tasks
+            {run.readyToAct && ' | ⚠'}
+            {run.status === 'running' && (
+              <>
+                {' | '}
+                <IsolatedCardTimer startTime={run.createdAt} showSeconds={false} />
+              </>
+            )}
+            {showCompletedDuration && (
+              <>
+                {' | '}
+                <Text>{formatDuration(run.durationMs!, true)}</Text>
+              </>
+            )}
           </Text>
         </Box>
-      )}
-      <Box marginTop={0} height={1}>
-        <Text dimColor>
-          {run.completedSubtasks}/{run.totalSubtasks} tasks
-          {run.readyToAct && ' | ⚠'}
-          {run.status === 'running' && (
-            <>
-              {' | '}
-              <IsolatedCardTimer startTime={run.createdAt} showSeconds={false} />
-            </>
-          )}
-          {showCompletedDuration && (
-            <>
-              {' | '}
-              <Text>{formatDuration(run.durationMs!, true)}</Text>
-            </>
-          )}
-        </Text>
       </Box>
+      {/* Progress bar at bottom - always at bottom using flexbox */}
+      {isRunning && (
+        <Box marginTop={0} marginBottom={1} height={1} flexDirection="row" alignItems="center" width="100%">
+          {/* Progress bar on left - grows to fill available space */}
+          <Box flexGrow={1} marginRight={1}>
+            <Text>
+              {progressBar}
+            </Text>
+          </Box>
+          {/* Percentage inline between progress bar and spinner - fixed width */}
+          <Box flexShrink={0}>
+            <Text bold color="cyan">
+              {run.progressPercent}%
+            </Text>
+          </Box>
+          {/* Spinner inline to the right - fixed width */}
+          <Box marginLeft={1} flexShrink={0}>
+            <Text bold>
+              <Spinner 
+                active={isRunning}
+              />
+            </Text>
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 }, (prevProps, nextProps) => {
@@ -139,6 +185,8 @@ export const TaskCard = React.memo(function TaskCard({ run, selected = false, wi
     prevProps.run.phase === nextProps.run.phase &&
     prevProps.run.readyToAct === nextProps.run.readyToAct &&
     prevProps.run.durationMs === nextProps.run.durationMs &&
+    prevProps.run.skillId === nextProps.run.skillId &&
+    prevProps.run.name === nextProps.run.name &&
     prevProps.selected === nextProps.selected &&
     prevProps.width === nextProps.width
   );
