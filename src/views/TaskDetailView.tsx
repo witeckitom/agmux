@@ -527,6 +527,13 @@ export function TaskDetailView() {
       return;
     }
 
+    // Enter to start typing (at any time, regardless of focus pane)
+    if (key.return && selectedRun && !editingChat) {
+      setEditingChat(true);
+      setChatEditing(true);
+      return;
+    }
+
     // Chat pane navigation
     if (focusPane === 'chat') {
       const maxOffset = Math.max(0, chatLines.length - chatVisibleHeight);
@@ -557,13 +564,6 @@ export function TaskDetailView() {
       if (input === 'G') {
         // Go to bottom (newest)
         setChatScrollOffset(0);
-        return;
-      }
-      
-      // Enter to start typing (when task is ready)
-      if (key.return && selectedRun?.readyToAct) {
-        setEditingChat(true);
-        setChatEditing(true);
         return;
       }
     }
@@ -910,38 +910,36 @@ export function TaskDetailView() {
 
           {/* Chat input/help at bottom */}
           <Box borderTop={true} borderStyle="single" paddingX={1} flexShrink={0} flexDirection="column">
-            {selectedRun.readyToAct ? (
-              editingChat ? (
-                <Box flexDirection="column" width="100%">
-                  {chatInputRef.current === '' ? (
-                    <Box flexDirection="row">
-                      <Text color="cyan">&gt; </Text>
-                      <Text color="yellow">█</Text>
-                    </Box>
-                  ) : (
-                    chatInputRef.current.split('\n').map((line, lineIndex) => {
-                      const isLastLine = lineIndex === chatInputRef.current.split('\n').length - 1;
-                      const prompt = lineIndex === 0 ? '> ' : '  ';
-                      
-                      return (
-                        <Box key={lineIndex} flexDirection="row" width="100%">
-                          <Text color="cyan" wrap="wrap">
-                            {prompt}
-                            {line}
-                          </Text>
-                          {isLastLine && (
-                            <Text color="yellow">█</Text>
-                          )}
-                        </Box>
-                      );
-                    })
-                  )}
-                </Box>
-              ) : (
-                <Text dimColor>Enter=reply | j/k=scroll | Tab=switch</Text>
-              )
+            {editingChat ? (
+              <Box flexDirection="column" width="100%">
+                {chatInputRef.current === '' ? (
+                  <Box flexDirection="row">
+                    <Text color="cyan">&gt; </Text>
+                    <Text color="yellow">█</Text>
+                  </Box>
+                ) : (
+                  chatInputRef.current.split('\n').map((line, lineIndex) => {
+                    const isLastLine = lineIndex === chatInputRef.current.split('\n').length - 1;
+                    const prompt = lineIndex === 0 ? '> ' : '  ';
+                    
+                    return (
+                      <Box key={lineIndex} flexDirection="row" width="100%">
+                        <Text color="cyan" wrap="wrap">
+                          {prompt}
+                          {line}
+                        </Text>
+                        {isLastLine && (
+                          <Text color="yellow">█</Text>
+                        )}
+                      </Box>
+                    );
+                  })
+                )}
+              </Box>
             ) : (
-              <Text dimColor>j/k=scroll | Tab=switch</Text>
+              <Text dimColor>
+                {selectedRun.readyToAct ? 'Enter=reply | ' : ''}j/k=scroll | Tab=switch
+              </Text>
             )}
           </Box>
         </Box>
