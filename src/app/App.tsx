@@ -141,63 +141,63 @@ const AppContent = React.memo(function AppContent({ database, projectRoot }: App
     return { topBarHeight, commandModeHeight, mainViewHeight };
   }, [terminalDimensions.height, commandMode]);
 
-        // If merge prompt is showing, render it instead of main content
-        if (mergePrompt) {
-          return (
-            <Box flexDirection="column" height={terminalDimensions.height}>
-              <MergeBranchPromptView
-                runId={mergePrompt.runId}
-                defaultBranch={mergePrompt.defaultBranch}
-                onConfirm={async (branch: string) => {
-                  try {
-                    await appContext.mergeTaskBranch(mergePrompt!.runId, branch);
-                    appContext.hideMergePrompt();
-                  } catch (error) {
-                    logger.error('Merge failed', 'App', { error });
-                    // Keep prompt open on error so user can try again
-                  }
-                }}
-                onCancel={() => {
-                  appContext.hideMergePrompt();
-                }}
-              />
-            </Box>
-          );
-        }
+  // If merge prompt is showing, render it instead of main content
+  if (mergePrompt) {
+    return (
+      <Box flexDirection="column" height={terminalDimensions.height}>
+        <MergeBranchPromptView
+          runId={mergePrompt.runId}
+          defaultBranch={mergePrompt.defaultBranch}
+          onConfirm={async (branch: string) => {
+            try {
+              await appContext.mergeTaskBranch(mergePrompt!.runId, branch);
+              appContext.hideMergePrompt();
+            } catch (error) {
+              logger.error('Merge failed', 'App', { error });
+              // Keep prompt open on error so user can try again
+            }
+          }}
+          onCancel={() => {
+            appContext.hideMergePrompt();
+          }}
+        />
+      </Box>
+    );
+  }
 
-        // If confirmation dialog is showing, render it instead of main content
-        if (confirmation) {
-          return (
-            <Box flexDirection="column" height={terminalDimensions.height}>
-              <KeyboardHandler />
-              <ConfirmationDialog
-                message={confirmation.message}
-                onConfirm={confirmation.onConfirm}
-                onCancel={confirmation.onCancel}
-              />
-            </Box>
-          );
-        }
+  // If confirmation dialog is showing, render it instead of main content
+  if (confirmation) {
+    return (
+      <Box flexDirection="column" height={terminalDimensions.height}>
+        <KeyboardHandler />
+        <ConfirmationDialog
+          message={confirmation.message}
+          onConfirm={confirmation.onConfirm}
+          onCancel={confirmation.onCancel}
+        />
+      </Box>
+    );
+  }
 
-        // If help is visible, show help overlay
-        if (helpVisible) {
-          return (
-            <Box flexDirection="column" height={terminalDimensions.height}>
-              <KeyboardHandler />
-              <HelpView onClose={() => appContext.toggleHelp()} />
-            </Box>
-          );
-        }
+  // If help is visible, show help overlay
+  if (helpVisible) {
+    return (
+      <Box flexDirection="column" height={terminalDimensions.height}>
+        <KeyboardHandler />
+        <HelpView onClose={() => appContext.toggleHelp()} />
+      </Box>
+    );
+  }
 
-        // If logs are visible, show full-screen log viewer overlay
-        if (logsVisible) {
-          return (
-            <Box flexDirection="column" height={terminalDimensions.height}>
-              <KeyboardHandler />
-              <LogView />
-            </Box>
-          );
-        }
+  // If logs are visible, show full-screen log viewer overlay
+  if (logsVisible) {
+    return (
+      <Box flexDirection="column" height={terminalDimensions.height}>
+        <KeyboardHandler />
+        <LogView />
+      </Box>
+    );
+  }
 
   // Show splash screen on initial load
   if (showSplash) {
@@ -216,7 +216,9 @@ const AppContent = React.memo(function AppContent({ database, projectRoot }: App
       <KeyboardHandler />
       <TopBar />
       <CommandMode isCommandMode={commandMode} />
-      <MainView />
+      <Box height={layoutHeights.mainViewHeight} minHeight={1}>
+        <MainView />
+      </Box>
     </Box>
   );
 });

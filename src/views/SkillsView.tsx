@@ -1,14 +1,49 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useStdout } from 'ink';
 import { useApp } from '../context/AppContext.js';
 import { loadSkills, Skill } from '../utils/skillsLoader.js';
 import { logger } from '../utils/logger.js';
 
+// Helper function to wrap text into lines
+function wrapText(text: string, width: number): string[] {
+  const lines: string[] = [];
+  const paragraphs = text.split('\n');
+  
+  for (const paragraph of paragraphs) {
+    if (paragraph.trim() === '') {
+      lines.push('');
+      continue;
+    }
+    
+    let remaining = paragraph;
+    while (remaining.length > 0) {
+      if (remaining.length <= width) {
+        lines.push(remaining);
+        break;
+      }
+      
+      // Try to break at a space
+      let breakPoint = width;
+      const lastSpace = remaining.lastIndexOf(' ', width);
+      if (lastSpace > width * 0.7) { // Only break at space if it's not too early
+        breakPoint = lastSpace;
+      }
+      
+      lines.push(remaining.slice(0, breakPoint));
+      remaining = remaining.slice(breakPoint).trimStart();
+    }
+  }
+  
+  return lines;
+}
+
 export function SkillsView() {
   const { state } = useApp();
+  const { stdout } = useStdout();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [contentScrollOffset, setContentScrollOffset] = useState(0);
 
   useEffect(() => {
     const loadSkillsList = () => {
@@ -27,10 +62,38 @@ export function SkillsView() {
     loadSkillsList();
   }, [state.projectRoot]);
 
+  const selectedSkill = skills[selectedIndex];
+  const maxListWidth = 40;
+
+  // Reset scroll when skill changes
+  useEffect(() => {
+    setContentScrollOffset(0);
+  }, [selectedIndex]);
+
   useInput((input, key) => {
     if (key.escape) {
       // Could navigate back, but for now just handle escape
       return;
+    }
+
+    // Content scrolling (when content is long)
+    if (selectedSkill) {
+      const terminalWidth = stdout?.columns || 80;
+      const contentWidth = terminalWidth - maxListWidth - 6; // Account for borders and padding
+      const contentLines = wrapText(selectedSkill.content, contentWidth);
+      const terminalHeight = stdout?.rows || 24;
+      // Reserve: TopBar(6) + padding(2) + header(1) + footer(1) = 10
+      const availableHeight = terminalHeight - 10;
+      const maxScroll = Math.max(0, contentLines.length - availableHeight);
+
+      if (key.pageDown || (key.shift && (input === 'j' || key.downArrow))) {
+        setContentScrollOffset(prev => Math.min(maxScroll, prev + Math.floor(availableHeight / 2)));
+        return;
+      }
+      if (key.pageUp || (key.shift && (input === 'k' || key.upArrow))) {
+        setContentScrollOffset(prev => Math.max(0, prev - Math.floor(availableHeight / 2)));
+        return;
+      }
     }
 
     // Navigation
@@ -56,9 +119,23 @@ export function SkillsView() {
     }
   });
 
-  const selectedSkill = skills[selectedIndex];
-  const maxListWidth = 40;
-  const contentWidth = 60;
+  // Calculate visible content lines
+  const visibleContentLines = useMemo(() => {
+    if (!selectedSkill) return [];
+    
+    const terminalWidth = stdout?.columns || 80;
+    const terminalHeight = stdout?.rows || 24;
+    const contentWidth = terminalWidth - maxListWidth - 6; // Account for borders and padding
+    const contentLines = wrapText(selectedSkill.content, contentWidth);
+    
+    // Reserve: TopBar(6) + padding(2) + header(1) + footer(1) = 10
+    const availableHeight = Math.max(1, terminalHeight - 10);
+    
+    const start = contentScrollOffset;
+    const end = Math.min(contentLines.length, start + availableHeight);
+    
+    return contentLines.slice(start, end);
+  }, [selectedSkill, contentScrollOffset, stdout?.columns, stdout?.rows]);
 
   if (loading) {
     return (
@@ -120,15 +197,17 @@ export function SkillsView() {
       </Box>
 
       {/* Skill Content */}
-      <Box flexDirection="column" width={contentWidth} borderStyle="single" borderColor="cyan" paddingX={1} marginLeft={1}>
+      <Box flexDirection="column" flexGrow={1} minWidth={0} borderStyle="single" borderColor="cyan" paddingX={1} marginLeft={1}>
         {selectedSkill ? (
           <>
             <Box marginBottom={1}>
               <Text bold color="cyan">{selectedSkill.name}</Text>
               <Text dimColor> ({selectedSkill.source})</Text>
             </Box>
-            <Box flexDirection="column" flexGrow={1}>
-              <Text wrap="wrap">{selectedSkill.content}</Text>
+            <Box flexDirection="column" flexGrow={1} minWidth={0} width="100%">
+              {visibleContentLines.map((line, index) => (
+                <Text key={index} wrap="wrap">{line || ' '}</Text>
+              ))}
             </Box>
             <Box marginTop={1}>
               <Text dimColor>Path: {selectedSkill.path}</Text>
