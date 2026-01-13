@@ -25,7 +25,6 @@ function getLogColor(level: LogEntry['level']): string {
 
 export function LogView() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [scrollOffset, setScrollOffset] = useState(0);
   const [filterLevel, setFilterLevel] = useState<LogEntry['level'] | 'all'>('all');
 
   // Get terminal dimensions for full-screen overlay
@@ -53,57 +52,27 @@ export function LogView() {
     return logs.filter(log => log.level === filterLevel);
   }, [logs, filterLevel]);
 
-  // Handle keyboard input for scrolling and filtering
-  useInput((input, key) => {
-    const maxOffset = Math.max(0, filteredLogs.length - logsHeight);
-    
-    if (key.upArrow || input === 'k') {
-      setScrollOffset(prev => Math.min(prev + 1, maxOffset));
-    } else if (key.downArrow || input === 'j') {
-      setScrollOffset(prev => Math.max(0, prev - 1));
-    } else if (key.pageUp) {
-      setScrollOffset(prev => Math.min(prev + logsHeight, maxOffset));
-    } else if (key.pageDown) {
-      setScrollOffset(prev => Math.max(0, prev - logsHeight));
-    } else if (input === 'g') {
-      // Go to top (oldest logs)
-      setScrollOffset(maxOffset);
-    } else if (input === 'G') {
-      // Go to bottom (newest logs)
-      setScrollOffset(0);
-    } else if (input === '1') {
+  // Handle keyboard input for filtering only (scrolling disabled)
+  useInput((input) => {
+    if (input === '1') {
       setFilterLevel('debug');
-      setScrollOffset(0);
     } else if (input === '2') {
       setFilterLevel('info');
-      setScrollOffset(0);
     } else if (input === '3') {
       setFilterLevel('warn');
-      setScrollOffset(0);
     } else if (input === '4') {
       setFilterLevel('error');
-      setScrollOffset(0);
     } else if (input === '0') {
       setFilterLevel('all');
-      setScrollOffset(0);
     }
   });
 
-  // Calculate visible logs based on scroll offset
+  // Calculate visible logs - always show latest logs (scrolling disabled)
   const visibleLogs = useMemo(() => {
     if (filteredLogs.length === 0) return [];
-    if (scrollOffset === 0) {
-      return filteredLogs.slice(-logsHeight);
-    }
-    const start = Math.max(0, filteredLogs.length - logsHeight - scrollOffset);
-    const end = filteredLogs.length - scrollOffset;
-    return filteredLogs.slice(start, end);
-  }, [filteredLogs, logsHeight, scrollOffset]);
-
-  // Calculate scroll position indicator
-  const scrollPercent = filteredLogs.length <= logsHeight 
-    ? 100 
-    : Math.round(((filteredLogs.length - scrollOffset) / filteredLogs.length) * 100);
+    // Always show the most recent logs
+    return filteredLogs.slice(-logsHeight);
+  }, [filteredLogs, logsHeight]);
 
   return (
     <Box
@@ -127,12 +96,6 @@ export function LogView() {
             <Text dimColor>, filtered: {filterLevel}</Text>
           )}
           <Text dimColor>)</Text>
-        </Box>
-        <Box>
-          <Text dimColor>
-            {scrollPercent}% 
-            {scrollOffset > 0 && ` ↑${scrollOffset}`}
-          </Text>
         </Box>
       </Box>
 
@@ -225,13 +188,8 @@ export function LogView() {
         paddingX={2} 
         borderTop={true} 
         borderStyle="single"
-        justifyContent="space-between"
+        justifyContent="flex-end"
       >
-        <Box>
-          <Text dimColor>
-            <Text bold>Navigation:</Text> j/k or ↑/↓ scroll | PgUp/PgDn page | g/G top/bottom
-          </Text>
-        </Box>
         <Box>
           <Text dimColor>
             <Text bold>Filter:</Text> 0=all 1=
