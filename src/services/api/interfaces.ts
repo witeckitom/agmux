@@ -21,6 +21,11 @@ export interface IHttpApiServer {
    * Get the port the server is listening on
    */
   getPort(): number | null;
+  
+  /**
+   * Get the Express app instance for mounting additional routes
+   */
+  getApp(): any;
 }
 
 /**

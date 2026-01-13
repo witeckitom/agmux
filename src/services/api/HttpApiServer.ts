@@ -153,4 +153,11 @@ export class HttpApiServer implements IHttpApiServer {
   getPort(): number | null {
     return this.port;
   }
+
+  /**
+   * Get the Express app instance for mounting additional routes
+   */
+  getApp(): Express {
+    return this.app;
+  }
 }

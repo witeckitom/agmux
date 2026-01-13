@@ -103,6 +103,24 @@ npm test e2e/app.e2e.test.tsx
 - **better-sqlite3** - SQLite database
 - **ink-testing-library** - Testing utilities for React Ink
 
+## MCP Server
+
+When running, the application exposes an MCP server at `http://localhost:3000/mcp` that allows AI assistants to manage tasks and skills.
+
+### Adding to Claude Code
+
+```bash
+claude mcp add --transport http amux http://localhost:3000/mcp
+```
+
+### Available Tools
+
+- `list_tasks` - Get all tasks
+- `get_task` - Get a specific task by run ID
+- `create_task` - Create a new task
+- `start_task` - Start a queued task
+- `add_or_update_skill` - Add or update a skill
+
 ## Requirements
 
 - Node.js >= 18.0.0

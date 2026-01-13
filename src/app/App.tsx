@@ -75,6 +75,7 @@ const AppContent = React.memo(function AppContent({ database, projectRoot }: App
         // Get HTTP port from environment or default to 3000
         const httpPort = parseInt(process.env.HTTP_PORT || '3000', 10);
         // MCP server is enabled by default, but can be disabled via environment variable
+        // MCP now uses HTTP transport and runs alongside the TUI
         const mcpEnabled = process.env.MCP_ENABLED !== 'false';
 
         // Use the TaskExecutor from AppContext

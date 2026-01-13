@@ -28,7 +28,8 @@ export class ServiceManager {
     const skillService = new SkillService(projectRoot);
 
     this.httpServer = new HttpApiServer(taskService, skillService);
-    this.mcpServer = new McpServer(taskService, skillService);
+    // Pass Express app to MCP server so it can mount on the same HTTP server
+    this.mcpServer = new McpServer(taskService, skillService, this.httpServer.getApp());
     this.httpPort = httpPort;
     this.mcpEnabled = mcpEnabled;
   }
@@ -38,18 +39,18 @@ export class ServiceManager {
    */
   async start(): Promise<void> {
     try {
-      // Start HTTP API server
+      // Start HTTP API server first
       await this.httpServer.start(this.httpPort);
       logger.info(`HTTP API server started on port ${this.httpPort}`, 'ServiceManager');
 
-      // Start MCP server if enabled
+      // Start MCP server if enabled (mounts on same Express app)
       if (this.mcpEnabled) {
         try {
           await this.mcpServer.start();
-          logger.info('MCP server started', 'ServiceManager');
+          logger.info('MCP server started on /mcp endpoint', 'ServiceManager');
         } catch (error) {
-          logger.warn('Failed to start MCP server (this is normal if not running as MCP)', 'ServiceManager', { error });
-          // Don't fail if MCP server can't start - it might not be running in MCP mode
+          logger.warn('Failed to start MCP server', 'ServiceManager', { error });
+          // Don't fail if MCP server can't start
         }
       }
     } catch (error) {

@@ -6,6 +6,7 @@ import { Run } from '../models/types.js';
 export function createMockRun(overrides: Partial<Run> = {}): Run {
   return {
     id: crypto.randomUUID(),
+    name: null,
     status: 'queued',
     phase: 'worktree_creation',
     worktreePath: '/tmp/test-worktree',

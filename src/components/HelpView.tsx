@@ -51,7 +51,7 @@ export function HelpView({ onClose }: HelpViewProps) {
         paddingX={2}
         paddingY={1}
         flexDirection="column"
-        maxHeight={maxHeight}
+        height={maxHeight}
       >
         <Box marginBottom={1}>
           <Text bold color="cyan">
@@ -60,7 +60,7 @@ export function HelpView({ onClose }: HelpViewProps) {
         </Box>
         
         <Box marginBottom={1} flexDirection="column">
-          <Text bold color="yellow" marginBottom={1}>
+          <Text bold color="yellow">
             Global Commands:
           </Text>
           {globalCommands.map((cmd, index) => (
@@ -74,7 +74,7 @@ export function HelpView({ onClose }: HelpViewProps) {
           if (commands.length === 0) return null;
           return (
             <Box key={view} marginBottom={1} flexDirection="column">
-              <Text bold color="yellow" marginBottom={1}>
+              <Text bold color="yellow">
                 {view.charAt(0).toUpperCase() + view.slice(1).replace('-', ' ')} View:
               </Text>
               {commands.map((cmd, index) => (

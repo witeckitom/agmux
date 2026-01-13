@@ -86,6 +86,7 @@ export class DatabaseManager {
 
     return {
       id: row.id,
+      name: row.name ?? null,
       status: row.status as Run['status'],
       phase: row.phase as Run['phase'],
       worktreePath: row.worktree_path,

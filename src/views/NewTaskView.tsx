@@ -314,7 +314,7 @@ ${taskPrompt}`;
               <Text dimColor>(No skills available)</Text>
             </Box>
           ) : (
-            <Box paddingX={1} flexDirection="column" maxHeight={10} borderStyle="single" borderColor={currentField === 'skill' ? 'cyan' : 'gray'}>
+            <Box paddingX={1} flexDirection="column" height={10} borderStyle="single" borderColor={currentField === 'skill' ? 'cyan' : 'gray'}>
               {skills.map((skill, index) => {
                 const isSelected = index === selectedSkillIndex;
                 const isCurrent = currentField === 'skill';
