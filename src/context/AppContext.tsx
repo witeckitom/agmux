@@ -18,6 +18,7 @@ interface ConfirmationState {
 interface AppState {
   currentView: ViewType;
   selectedIndex: number;
+  previousSelectedIndex: number | null; // Remember selected index when navigating to task detail
   runs: Run[];
   commandMode: boolean;
   commandInput: string;
@@ -48,6 +49,7 @@ interface AppContextValue {
   hideConfirmation: () => void;
   deleteRun: (runId: string) => void;
   setSelectedRunId: (runId: string | null) => void;
+  setPreviousSelectedIndex: (index: number | null) => void;
   toggleTaskStatus: (runId: string) => void;
   sendMessageToTask: (runId: string, message: string) => Promise<void>;
   showMergePrompt: (runId: string, defaultBranch: string) => void;
@@ -122,6 +124,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
   const [state, setState] = useState<AppState>({
     currentView: 'tasks',
     selectedIndex: 0,
+    previousSelectedIndex: null,
     runs: [],
     commandMode: false,
     commandInput: '',
@@ -363,6 +366,10 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
 
   const setSelectedRunId = useCallback((runId: string | null) => {
     setState(prev => ({ ...prev, selectedRunId: runId }));
+  }, []);
+
+  const setPreviousSelectedIndex = useCallback((index: number | null) => {
+    setState(prev => ({ ...prev, previousSelectedIndex: index }));
   }, []);
 
   // HARD LOCK for toggleTaskStatus to prevent repeated calls
@@ -676,6 +683,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     hideConfirmation,
     deleteRun,
     setSelectedRunId,
+    setPreviousSelectedIndex,
     toggleTaskStatus,
     sendMessageToTask,
     showMergePrompt,
@@ -702,6 +710,7 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
     hideConfirmation,
     deleteRun,
     setSelectedRunId,
+    setPreviousSelectedIndex,
     toggleTaskStatus,
     sendMessageToTask,
     showMergePrompt,

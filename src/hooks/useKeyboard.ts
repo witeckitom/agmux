@@ -47,6 +47,7 @@ export function useKeyboard() {
     hideConfirmation,
     setCurrentView,
     setSelectedRunId,
+    setPreviousSelectedIndex,
     toggleTaskStatus,
     showMergePrompt,
     hideMergePrompt,
@@ -154,6 +155,10 @@ export function useKeyboard() {
         logger.debug('Returning to tasks view', 'Keyboard');
         setCurrentView('tasks');
         setSelectedRunId(null);
+        // Restore the previously selected index if it exists and is valid
+        if (state.previousSelectedIndex !== null && state.previousSelectedIndex >= 0 && state.previousSelectedIndex < state.runs.length) {
+          setSelectedIndex(state.previousSelectedIndex);
+        }
         return;
       }
       // Close help if visible, otherwise close detail pane or cancel action
@@ -324,6 +329,8 @@ export function useKeyboard() {
         }
         const selectedRun = state.runs[state.selectedIndex];
         logger.info(`Viewing task detail: ${selectedRun.id}`, 'Keyboard');
+        // Store the current selectedIndex before navigating to task detail
+        setPreviousSelectedIndex(state.selectedIndex);
         setSelectedRunId(selectedRun.id);
         setCurrentView('task-detail');
         return;
