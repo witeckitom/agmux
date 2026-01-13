@@ -98,32 +98,40 @@ export const TopBar = React.memo(function TopBar() {
       borderStyle="single" 
       borderBottom={true} 
       minHeight={navBarMinHeight}
-      flexDirection="row"
+      flexDirection="column"
       paddingTop={1}
       paddingBottom={1}
-      alignItems="flex-start"
     >
-      {/* Left side - logo */}
-      <Box paddingX={1} flexDirection="column">
-        {logoLines.map((line, index) => (
-          <Text key={index} color="cyan">
-            {line}
-          </Text>
-        ))}
-      </Box>
-      {/* Right side - content */}
-      <Box flexDirection="row" flexGrow={1} paddingX={1} alignItems="flex-start">
-        <Box paddingX={1} paddingY={0} flexGrow={1}>
-          <Text>
-            <Text bold color="cyan">Project:</Text> {projectName} |{' '}
-            <Text bold color="cyan">Branch:</Text> {gitBranch} |{' '}
-            <Text bold color="cyan">View:</Text> {contextDisplay}
-          </Text>
-        </Box>
-        <Box paddingX={1} paddingY={0}>
-          <Text dimColor>
-            {runningCount} running | <Text bold>Shift+H</Text> help
-          </Text>
+      {/* Main row: logo on left, flex box on right */}
+      <Box flexDirection="row" paddingX={1} alignItems="flex-start">
+        {/* Left side: logo */}
+        {logoLines.length > 0 ? (
+          <Box flexDirection="column" marginTop={-1}>
+            {logoLines.map((line, index) => (
+              <Text key={index} color="cyan">
+                {line}
+              </Text>
+            ))}
+          </Box>
+        ) : null}
+        {/* Flex box taking remaining space: project info left, running tasks right */}
+        <Box flexGrow={1} flexDirection="row" alignItems="flex-start" marginLeft={2}>
+          {/* Left side: project/branch/view */}
+          <Box flexDirection="column" marginTop={-0.5}>
+            <Text>
+              <Text bold color="cyan">Project:</Text> {projectName} |{' '}
+              <Text bold color="cyan">Branch:</Text> {gitBranch} |{' '}
+              <Text bold color="cyan">View:</Text> {contextDisplay}
+            </Text>
+          </Box>
+          {/* Spacer to push running count to right */}
+          <Box flexGrow={1} />
+          {/* Right side: running count/help */}
+          <Box flexDirection="column" alignItems="flex-end">
+            <Text dimColor>
+              {runningCount} running | <Text bold>Shift+H</Text> help
+            </Text>
+          </Box>
         </Box>
       </Box>
     </Box>
