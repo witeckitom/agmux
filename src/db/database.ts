@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
 import { Run, Worktree, Preference, Message } from '../models/types.js';
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 export class DatabaseManager {
   private db: Database.Database;
@@ -13,7 +14,11 @@ export class DatabaseManager {
   }
 
   private initializeSchema(): void {
-    const schemaPath = join(process.cwd(), 'src', 'db', 'schema.sql');
+    // Get the directory of this module file (works for both local and global installs)
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    // Resolve schema.sql relative to this module's directory
+    const schemaPath = join(__dirname, 'schema.sql');
     const schema = readFileSync(schemaPath, 'utf-8');
     this.db.exec(schema);
     

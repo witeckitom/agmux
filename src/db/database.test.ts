@@ -286,4 +286,60 @@ describe('DatabaseManager', () => {
       expect(db.getPreference('theme')).toBe('dark');
     });
   });
+
+  describe('schema initialization', () => {
+    it('should initialize schema from package directory, not process.cwd()', () => {
+      // This test verifies that schema.sql is found relative to the module,
+      // not the current working directory. The existing beforeEach already
+      // tests this implicitly by creating a DatabaseManager, but we make it explicit.
+      const originalCwd = process.cwd();
+      
+      try {
+        // Change to a different directory to simulate running from another repo
+        process.chdir('/tmp');
+        
+        // Create a new database - should still work even though cwd changed
+        const testDbPath2 = join(originalCwd, 'test-schema.db');
+        try {
+          unlinkSync(testDbPath2);
+        } catch {
+          // Ignore if file doesn't exist
+        }
+        
+        const db2 = new DatabaseManager(testDbPath2);
+        
+        // If we get here without error, schema was found correctly
+        // Verify database was initialized by checking we can create a run
+        const run = db2.createRun({
+          status: 'queued',
+          phase: 'worktree_creation',
+          worktreePath: '/tmp/test',
+          baseBranch: 'main',
+          agentProfileId: 'profile-1',
+          conversationId: null,
+          skillId: null,
+          prompt: 'Test',
+          progressPercent: 0,
+          totalSubtasks: 0,
+          completedSubtasks: 0,
+          readyToAct: false,
+          completedAt: null,
+          retainWorktree: false,
+        });
+        
+        expect(run).toBeDefined();
+        expect(run.id).toBeDefined();
+        
+        db2.close();
+        try {
+          unlinkSync(testDbPath2);
+        } catch {
+          // Ignore cleanup errors
+        }
+      } finally {
+        // Restore original cwd
+        process.chdir(originalCwd);
+      }
+    });
+  });
 });
