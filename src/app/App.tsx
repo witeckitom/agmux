@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Box, useApp as useInkApp } from 'ink';
 import { AppProvider, useApp } from '../context/AppContext.js';
 import { SettingsProvider } from '../context/SettingsContext.js';
@@ -17,6 +17,7 @@ import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { ServiceManager } from '../services/api/ServiceManager.js';
 
 // Read version from package.json
 const packageJsonPath = join(process.cwd(), 'package.json');
@@ -24,14 +25,16 @@ const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
 
 interface AppContentProps {
   database: DatabaseManager;
+  projectRoot: string;
 }
 
 // Memoize AppContent to prevent re-renders when CommandMode updates
-const AppContent = React.memo(function AppContent({ database }: AppContentProps) {
+const AppContent = React.memo(function AppContent({ database, projectRoot }: AppContentProps) {
 
   const { exit } = useInkApp();
   const appContext = useApp();
   const [showSplash, setShowSplash] = useState(true);
+  const serviceManagerRef = useRef<ServiceManager | null>(null);
 
   // Only read what we need - don't destructure state to avoid subscribing to all changes
   const commandMode = appContext.state.commandMode;
@@ -64,6 +67,45 @@ const AppContent = React.memo(function AppContent({ database }: AppContentProps)
       commandMode,
     });
   }, [appContext.state.projectRoot, currentView, runningCount, commandMode]);
+
+  // Initialize and start API servers
+  useEffect(() => {
+    const initServers = async () => {
+      try {
+        // Get HTTP port from environment or default to 3000
+        const httpPort = parseInt(process.env.HTTP_PORT || '3000', 10);
+        // MCP server is enabled by default, but can be disabled via environment variable
+        const mcpEnabled = process.env.MCP_ENABLED !== 'false';
+
+        // Use the TaskExecutor from AppContext
+        const serviceManager = new ServiceManager(
+          database,
+          appContext.taskExecutor,
+          projectRoot,
+          httpPort,
+          mcpEnabled
+        );
+        serviceManagerRef.current = serviceManager;
+
+        await serviceManager.start();
+        logger.info(`API servers initialized (HTTP: ${httpPort}, MCP: ${mcpEnabled ? 'enabled' : 'disabled'})`, 'App');
+      } catch (error) {
+        logger.error('Failed to start API servers', 'App', { error });
+        // Don't fail the app if servers can't start
+      }
+    };
+
+    initServers();
+
+    // Cleanup on unmount
+    return () => {
+      if (serviceManagerRef.current) {
+        serviceManagerRef.current.stop().catch((error) => {
+          logger.error('Error stopping API servers', 'App', { error });
+        });
+      }
+    };
+  }, [database, appContext.taskExecutor, projectRoot]);
 
   // Initial load only - everything else is reactive
   useEffect(() => {
@@ -188,7 +230,10 @@ export function App({ database, projectRoot }: AppProps) {
     <InputProvider>
       <SettingsProvider database={database}>
         <AppProvider database={database} projectRoot={projectRoot}>
-          <AppContent database={database} />
+          <AppContent 
+            database={database} 
+            projectRoot={projectRoot}
+          />
         </AppProvider>
       </SettingsProvider>
     </InputProvider>
