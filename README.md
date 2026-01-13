@@ -1,7 +1,5 @@
 # Agent Orchestration TUI
 
-Hello world
-
 A local, terminal-based orchestration interface for managing, running, and observing multiple AI agents concurrently.
 
 Built with React Ink (TypeScript/React) for a modern, testable CLI experience.
