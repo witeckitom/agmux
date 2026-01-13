@@ -1,11 +1,11 @@
 {
-  "name": "amux",
+  "name": "agmux",
   "version": "0.0.1",
   "description": "A local, terminal-based orchestration interface for managing, running, and observing multiple AI agents concurrently",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "agent-orch": "./dist/index.js"
+    "agmux": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
