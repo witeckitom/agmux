@@ -479,3 +479,35 @@ export function getPRUrl(worktreePath: string, baseBranch: string = 'main'): str
     return null;
   }
 }
+
+/**
+ * Check if the current working directory is a git worktree
+ * @param cwd Optional working directory to check (defaults to process.cwd())
+ * @returns true if running from a worktree branch, false otherwise
+ */
+export function isWorktreeBranch(cwd: string = process.cwd()): boolean {
+  try {
+    // Method 1: Check if git-dir contains 'worktrees'
+    const gitDir = execSync(
+      'git rev-parse --git-dir',
+      { cwd, encoding: 'utf-8', stdio: 'pipe' }
+    ).trim();
+    
+    if (gitDir.includes('worktrees')) {
+      return true;
+    }
+    
+    // Method 2: Check if current path contains .worktrees/
+    const normalizedCwd = resolve(cwd);
+    if (normalizedCwd.includes('.worktrees/')) {
+      return true;
+    }
+    
+    return false;
+  } catch (error: any) {
+    // If git command fails, we're probably not in a git repo or worktree
+    // Also check path as fallback
+    const normalizedCwd = resolve(cwd);
+    return normalizedCwd.includes('.worktrees/');
+  }
+}

@@ -13,8 +13,10 @@ import { HelpView } from '../components/HelpView.js';
 import { MergeBranchPromptView } from '../views/MergeBranchPromptView.js';
 import { KeyboardHandler } from '../components/KeyboardHandler.js';
 import { SplashScreen } from '../components/SplashScreen.js';
+import { TestingBanner } from '../components/TestingBanner.js';
 import { DatabaseManager } from '../db/database.js';
 import { logger } from '../utils/logger.js';
+import { isWorktreeBranch } from '../utils/gitUtils.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { ServiceManager } from '../services/api/ServiceManager.js';
@@ -130,21 +132,26 @@ const AppContent = React.memo(function AppContent({ database, projectRoot }: App
     width: process.stdout.columns || 80,
   }), []);
 
+  // Check if running from worktree branch - memoize to avoid repeated checks
+  const isWorktree = useMemo(() => isWorktreeBranch(projectRoot), [projectRoot]);
+
   // Calculate heights for layout - memoize to prevent recalculation
   const layoutHeights = useMemo(() => {
     const topBarHeight = 6; // TopBar with smaller ASCII logo
+    const testingBannerHeight = isWorktree ? 3 : 0; // TestingBanner takes 3 lines (padding + text + padding)
     const commandModeHeight = commandMode ? 3 : 0;
     const mainViewHeight = Math.max(
       1,
-      terminalDimensions.height - topBarHeight - commandModeHeight
+      terminalDimensions.height - topBarHeight - testingBannerHeight - commandModeHeight
     );
-    return { topBarHeight, commandModeHeight, mainViewHeight };
-  }, [terminalDimensions.height, commandMode]);
+    return { topBarHeight, testingBannerHeight, commandModeHeight, mainViewHeight };
+  }, [terminalDimensions.height, commandMode, isWorktree]);
 
   // If merge prompt is showing, render it instead of main content
   if (mergePrompt) {
     return (
       <Box flexDirection="column" height={terminalDimensions.height}>
+        <TestingBanner visible={isWorktree} />
         <MergeBranchPromptView
           runId={mergePrompt.runId}
           defaultBranch={mergePrompt.defaultBranch}
@@ -169,6 +176,7 @@ const AppContent = React.memo(function AppContent({ database, projectRoot }: App
   if (confirmation) {
     return (
       <Box flexDirection="column" height={terminalDimensions.height}>
+        <TestingBanner visible={isWorktree} />
         <KeyboardHandler />
         <ConfirmationDialog
           message={confirmation.message}
@@ -183,6 +191,7 @@ const AppContent = React.memo(function AppContent({ database, projectRoot }: App
   if (helpVisible) {
     return (
       <Box flexDirection="column" height={terminalDimensions.height}>
+        <TestingBanner visible={isWorktree} />
         <KeyboardHandler />
         <HelpView onClose={() => appContext.toggleHelp()} />
       </Box>
@@ -193,6 +202,7 @@ const AppContent = React.memo(function AppContent({ database, projectRoot }: App
   if (logsVisible) {
     return (
       <Box flexDirection="column" height={terminalDimensions.height}>
+        <TestingBanner visible={isWorktree} />
         <KeyboardHandler />
         <LogView />
       </Box>
@@ -203,6 +213,7 @@ const AppContent = React.memo(function AppContent({ database, projectRoot }: App
   if (showSplash) {
     return (
       <Box flexDirection="column" height={terminalDimensions.height}>
+        <TestingBanner visible={isWorktree} />
         <SplashScreen
           version={packageJson.version}
           onComplete={() => setShowSplash(false)}
@@ -214,6 +225,7 @@ const AppContent = React.memo(function AppContent({ database, projectRoot }: App
   return (
     <Box flexDirection="column" height={terminalDimensions.height}>
       <KeyboardHandler />
+      <TestingBanner visible={isWorktree} />
       <TopBar />
       <CommandMode isCommandMode={commandMode} />
       <Box height={layoutHeights.mainViewHeight} minHeight={1}>
