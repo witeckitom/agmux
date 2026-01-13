@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { useApp } from '../context/AppContext.js';
+import { useSettings } from '../context/SettingsContext.js';
 import { useInput } from 'ink';
 import { logger } from '../utils/logger.js';
 import { MultiLineTextInput } from '../components/MultiLineTextInput.js';
@@ -8,16 +9,23 @@ import { loadSkills, Skill } from '../utils/skillsLoader.js';
 import { removeWorktree } from '../utils/gitWorktree.js';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
+import { AgentType } from '../models/types.js';
 
-type Field = 'name' | 'prompt' | 'skill';
+type Field = 'name' | 'prompt' | 'skill' | 'agent' | 'autoRun' | 'submit';
+type AgentOption = 'claude' | 'cursor' | 'both';
 
 export function NewTaskView() {
-  const { database, setCurrentView, refreshRuns, state } = useApp();
+  const { database, setCurrentView, refreshRuns, state, taskExecutor } = useApp();
+  const { settings } = useSettings();
   const [currentField, setCurrentField] = useState<Field>('name');
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<AgentOption>(settings.agent === 'claude' || settings.agent === 'cursor' ? settings.agent : 'claude');
+  const [autoRun, setAutoRun] = useState(false);
+  const agents: AgentOption[] = ['claude', 'cursor', 'both'];
+  const selectedAgentIndex = agents.indexOf(selectedAgent);
 
   useEffect(() => {
     logger.info('Entered new task creation view', 'NewTaskView');
@@ -29,7 +37,11 @@ export function NewTaskView() {
     } catch (error) {
       logger.error('Failed to load skills', 'NewTaskView', { error });
     }
-  }, [state.projectRoot]);
+    // Sync selected agent with global setting (only if it's a valid single agent)
+    if (settings.agent === 'claude' || settings.agent === 'cursor') {
+      setSelectedAgent(settings.agent);
+    }
+  }, [state.projectRoot, settings.agent]);
 
   const selectedSkill = skills[selectedSkillIndex];
 
@@ -59,8 +71,8 @@ export function NewTaskView() {
     }
 
     // Navigation between fields
-    if (key.tab) {
-      const fields: Field[] = ['name', 'prompt', 'skill'];
+    if (key.tab && !key.shift) {
+      const fields: Field[] = ['name', 'prompt', 'skill', 'agent', 'autoRun', 'submit'];
       const currentIndex = fields.indexOf(currentField);
       const nextIndex = (currentIndex + 1) % fields.length;
       setCurrentField(fields[nextIndex]);
@@ -68,11 +80,31 @@ export function NewTaskView() {
     }
 
     if (key.shift && key.tab) {
-      const fields: Field[] = ['name', 'prompt', 'skill'];
+      const fields: Field[] = ['name', 'prompt', 'skill', 'agent', 'autoRun', 'submit'];
       const currentIndex = fields.indexOf(currentField);
       const prevIndex = (currentIndex - 1 + fields.length) % fields.length;
       setCurrentField(fields[prevIndex]);
       return;
+    }
+
+    // Auto-run toggle (only when autoRun field is active)
+    if (currentField === 'autoRun') {
+      if (key.return || input === ' ' || input === 'x') {
+        setAutoRun(prev => !prev);
+        return;
+      }
+    }
+
+    // Agent selection (only when agent field is active)
+    if (currentField === 'agent') {
+      if (key.upArrow || input === 'k') {
+        setSelectedAgent(agents[Math.max(0, selectedAgentIndex - 1)]);
+        return;
+      }
+      if (key.downArrow || input === 'j') {
+        setSelectedAgent(agents[Math.min(agents.length - 1, selectedAgentIndex + 1)]);
+        return;
+      }
     }
 
     // Skill selection (only when skill field is active)
@@ -87,10 +119,12 @@ export function NewTaskView() {
       }
     }
 
-    // Submit (Ctrl+Enter or Enter when on skill field)
-    if (key.return && (key.ctrl || currentField === 'skill')) {
+    // Submit (Enter when on submit button)
+    if (key.return && currentField === 'submit') {
       if (canSubmit()) {
-        createTask();
+        createTask().catch((error) => {
+          logger.error('Error creating task', 'NewTaskView', { error });
+        });
       }
       return;
     }
@@ -100,7 +134,7 @@ export function NewTaskView() {
     return name.trim().length > 0 && prompt.trim().length > 0;
   };
 
-  const createTask = () => {
+  const createTask = async () => {
     const taskName = name.trim();
     const taskPrompt = prompt.trim();
     
@@ -198,35 +232,59 @@ ${taskPrompt}`;
         refreshRuns();
       }
 
-      // Create a new run/task
-      const run = database.createRun({
-        name: taskName,
-        status: 'queued',
-        phase: 'worktree_creation',
-        worktreePath: '', // Empty until worktree is created
-        baseBranch: 'main',
-        agentProfileId: 'default', // Will use default agent from settings
-        conversationId: null,
-        skillId: selectedSkill?.id || null,
-        prompt: systemPrompt, // Store the full prompt with system instructions
-        progressPercent: 0,
-        totalSubtasks: 0,
-        completedSubtasks: 0,
-        readyToAct: false,
-        completedAt: null,
-        durationMs: null,
-        retainWorktree: false,
-      });
+      // Create run(s) - if "both" is selected, create two tasks
+      const agentsToCreate: AgentType[] = selectedAgent === 'both' 
+        ? ['claude', 'cursor'] 
+        : [selectedAgent as AgentType];
 
-      logger.info('Task created successfully', 'NewTaskView', {
-        runId: run.id,
-        name: taskName,
-        prompt: taskPrompt,
-        skillId: selectedSkill?.id || null,
-        status: run.status,
-      });
+      const createdRuns = [];
+      for (const agent of agentsToCreate) {
+        const runName = agentsToCreate.length > 1 
+          ? `${taskName} (${agent})`
+          : taskName;
 
-      // Refresh the runs list to show the new task
+        const run = database.createRun({
+          name: runName,
+          status: 'queued',
+          phase: 'worktree_creation',
+          worktreePath: '', // Empty until worktree is created
+          baseBranch: 'main',
+          agentProfileId: agent,
+          conversationId: null,
+          skillId: selectedSkill?.id || null,
+          prompt: systemPrompt, // Store the full prompt with system instructions
+          progressPercent: 0,
+          totalSubtasks: 0,
+          completedSubtasks: 0,
+          readyToAct: false,
+          completedAt: null,
+          durationMs: null,
+          retainWorktree: false,
+        });
+
+        createdRuns.push(run);
+
+        logger.info('Task created successfully', 'NewTaskView', {
+          runId: run.id,
+          name: runName,
+          prompt: taskPrompt,
+          agent,
+          skillId: selectedSkill?.id || null,
+          status: run.status,
+        });
+
+        // Auto-start if enabled
+        if (autoRun) {
+          try {
+            await taskExecutor.startTask(run.id);
+            logger.info(`Auto-started task: ${run.id}`, 'NewTaskView');
+          } catch (error) {
+            logger.error(`Failed to auto-start task ${run.id}`, 'NewTaskView', { error });
+          }
+        }
+      }
+
+      // Refresh the runs list to show the new task(s)
       refreshRuns();
 
       // Go back to tasks view
@@ -278,12 +336,8 @@ ${taskPrompt}`;
               value={prompt}
               onChange={setPrompt}
               onSubmit={() => {
-                // Move to next field or submit
-                if (canSubmit()) {
-                  createTask();
-                } else {
-                  setCurrentField('skill');
-                }
+                // Move to next field
+                setCurrentField('skill');
               }}
               onCancel={() => setCurrentField('name')}
               placeholder="Enter your task prompt..."
@@ -347,9 +401,105 @@ ${taskPrompt}`;
           )}
         </Box>
 
+        {/* Agent Field */}
+        <Box marginBottom={1} flexDirection="column">
+          <Box marginBottom={0}>
+            <Text>
+              <Text bold color={currentField === 'agent' ? 'cyan' : 'white'}>
+                Agent:
+              </Text>
+            </Text>
+          </Box>
+          <Box paddingX={1} flexDirection="column" borderStyle="single" borderColor={currentField === 'agent' ? 'cyan' : 'gray'}>
+            {agents.map((agent, index) => {
+              const isSelected = index === selectedAgentIndex;
+              const isCurrent = currentField === 'agent';
+              
+              return (
+                <Box key={agent} marginBottom={0} paddingX={1}>
+                  <Text>
+                    {isSelected && isCurrent ? (
+                      <Text color="cyan">{'> '}</Text>
+                    ) : (
+                      <Text>{'  '}</Text>
+                    )}
+                    {isSelected ? (
+                      <Text bold color={isCurrent ? 'cyan' : 'white'}>
+                        {agent.charAt(0).toUpperCase() + agent.slice(1)}
+                        {agent === 'both' && (
+                          <Text dimColor> (runs with each agent to compare results)</Text>
+                        )}
+                      </Text>
+                    ) : (
+                      <Text color="gray">
+                        {agent.charAt(0).toUpperCase() + agent.slice(1)}
+                        {agent === 'both' && (
+                          <Text dimColor> (runs with each agent to compare results)</Text>
+                        )}
+                      </Text>
+                    )}
+                  </Text>
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+
+        {/* Auto-Run Field */}
+        <Box marginBottom={1} flexDirection="column">
+          <Box marginBottom={0}>
+            <Text>
+              <Text bold color={currentField === 'autoRun' ? 'cyan' : 'white'}>
+                Auto-Run:
+              </Text>
+            </Text>
+          </Box>
+          <Box 
+            paddingX={1} 
+            borderStyle="single" 
+            borderColor={currentField === 'autoRun' ? 'cyan' : 'gray'}
+            justifyContent="flex-start"
+          >
+            <Text>
+              {currentField === 'autoRun' ? (
+                <Text color="cyan">
+                  [{autoRun ? 'x' : ' '}] Auto-start task when created
+                </Text>
+              ) : (
+                <Text color={autoRun ? 'green' : 'gray'}>
+                  [{autoRun ? 'x' : ' '}] Auto-start task when created
+                </Text>
+              )}
+            </Text>
+          </Box>
+        </Box>
+
+        {/* Submit Button */}
+        <Box marginTop={1} marginBottom={1}>
+          <Box 
+            paddingX={2} 
+            paddingY={1} 
+            borderStyle="single" 
+            borderColor={currentField === 'submit' ? 'cyan' : canSubmit() ? 'green' : 'gray'}
+            justifyContent="center"
+          >
+            <Text>
+              {currentField === 'submit' ? (
+                <Text bold color="cyan">
+                  Submit Task
+                </Text>
+              ) : (
+                <Text color={canSubmit() ? 'green' : 'gray'}>
+                  Submit Task
+                </Text>
+              )}
+            </Text>
+          </Box>
+        </Box>
+
         <Box marginTop={1}>
-          <Text dimColor>
-            <Text bold>Navigation:</Text> Tab to move between fields, ↑↓ or j/k to select skill, Ctrl+Enter to submit, Esc to cancel
+            <Text dimColor>
+            <Text bold>Navigation:</Text> Tab to move forward, Shift+Tab to move backward, ↑↓ or j/k to select skill/agent, Space/Enter to toggle auto-run, Enter on submit button to create task, Esc to cancel
           </Text>
         </Box>
       </Box>
