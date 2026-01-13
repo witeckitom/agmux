@@ -44,6 +44,13 @@ export class TaskExecutor {
     }
   }
 
+  /**
+   * Trigger a UI refresh. Called by TaskService when tasks are created externally (e.g., via MCP/API).
+   */
+  triggerRefresh(): void {
+    this.notifyUpdate();
+  }
+
   private getAgent(agentType: 'claude' | 'cursor'): Agent {
     if (this.agents.has(agentType)) {
       return this.agents.get(agentType)!;

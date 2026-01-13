@@ -80,6 +80,10 @@ export class McpServer implements IMcpServer {
                   type: 'string',
                   description: 'Optional skill ID to use',
                 },
+                autoStart: {
+                  type: 'boolean',
+                  description: 'Automatically start the task after creation (default: false)',
+                },
               },
               required: ['prompt'],
             },
@@ -170,11 +174,22 @@ export class McpServer implements IMcpServer {
               agentProfileId: args?.agentProfileId as string | undefined,
               skillId: args?.skillId as string | undefined,
             });
+
+            // Auto-start the task if requested
+            if (args?.autoStart === true) {
+              await this.taskService.startTask(task.id);
+            }
+
+            // Re-fetch task to get updated status if auto-started
+            const updatedTask = args?.autoStart === true
+              ? await this.taskService.getTask(task.id) || task
+              : task;
+
             return {
               content: [
                 {
                   type: 'text',
-                  text: JSON.stringify(task, null, 2),
+                  text: JSON.stringify(updatedTask, null, 2),
                 },
               ],
             };

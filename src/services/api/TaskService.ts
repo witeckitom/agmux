@@ -37,6 +37,10 @@ export class TaskService implements ITaskService {
     });
 
     logger.info(`Created task ${run.id}`, 'TaskService');
+
+    // Trigger UI refresh so the new task appears immediately
+    this.taskExecutor.triggerRefresh();
+
     return run;
   }
 
