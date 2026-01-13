@@ -58,6 +58,13 @@ function formatDuration(ms: number, showSeconds: boolean = true): string {
   return showSeconds ? `${seconds}s` : '< 1 min';
 }
 
+function renderProgressBar(percent: number, width: number): string {
+  const barWidth = Math.max(10, width - 2);
+  const filled = Math.floor((percent / 100) * barWidth);
+  const empty = barWidth - filled;
+  return '[' + '█'.repeat(Math.max(0, filled)) + '░'.repeat(Math.max(0, empty)) + ']';
+}
+
 // Isolated timer component - only this component re-renders every second,
 // not the entire TaskDetailView. This prevents screen flashing.
 const IsolatedRunningTimer = React.memo(function IsolatedRunningTimer({ startTime, showSeconds = true }: { startTime: Date; showSeconds?: boolean }) {
@@ -78,12 +85,6 @@ const IsolatedRunningTimer = React.memo(function IsolatedRunningTimer({ startTim
          prevProps.showSeconds === nextProps.showSeconds;
 });
 
-function renderProgressBar(percent: number, width: number): string {
-  const barWidth = Math.max(10, width - 2);
-  const filled = Math.floor((percent / 100) * barWidth);
-  const empty = barWidth - filled;
-  return '[' + '█'.repeat(Math.max(0, filled)) + '░'.repeat(Math.max(0, empty)) + ']';
-}
 
 // Memoized StatusBar component - contains the timer and isolates its updates
 // from the rest of the TaskDetailView. Only re-renders when its props change.
@@ -95,6 +96,9 @@ interface StatusBarProps {
   progressPercent: number;
   taskName?: string | null;
   skillName?: string | null;
+  agentProfileId?: string;
+  completedSubtasks?: number;
+  totalSubtasks?: number;
 }
 
 const StatusBar = React.memo(function StatusBar({
@@ -105,7 +109,13 @@ const StatusBar = React.memo(function StatusBar({
   progressPercent,
   taskName,
   skillName,
+  agentProfileId,
+  completedSubtasks,
+  totalSubtasks,
 }: StatusBarProps) {
+  const { stdout } = useStdout();
+  const terminalWidth = stdout?.columns || 80;
+  
   const statusColor = status === 'running' ? 'green' :
                      status === 'paused' ? 'yellow' :
                      status === 'completed' ? 'cyan' :
@@ -122,55 +132,85 @@ const StatusBar = React.memo(function StatusBar({
 
   // Display status text - show "Needs Input" for paused status
   const displayStatus = isPaused ? 'Needs Input' : status;
+  
+  // Calculate progress bar width: account for spinner (~2), percentage (~6), margins (~4), padding (~2)
+  // Use flexGrow so it fills available space, but calculate max width for the bar itself
+  const progressBarWidth = Math.max(20, terminalWidth - 14);
+
+  // Calculate height: enough for info row + spacing + progress bar if running
+  // Need at least 2-3 lines for the info row (Name, Agent, Persona can wrap)
+  const statusBarHeight = isRunning ? 5 : 3;
 
   return (
-    <Box borderBottom={true} borderStyle="single" paddingX={1} height={4}>
+    <Box borderBottom={true} borderStyle="single" paddingX={1} height={statusBarHeight}>
       <Box flexDirection="column" width="100%">
-        <Box flexDirection="row" justifyContent="space-between">
-          {/* Left side: Name and Persona */}
-          <Box flexDirection="column" flexGrow={1}>
-            <Box>
-              <Text bold color="cyan">📋 Name:</Text>
+        {/* First row: Name, Agent, Persona (left) | Status (right) */}
+        <Box flexDirection="row" justifyContent="space-between" marginBottom={0}>
+          <Box flexDirection="row" flexWrap="wrap">
+            <Box marginRight={2}>
+              <Text bold color="cyan">Name:</Text>
               <Text color="white"> {displayName}</Text>
             </Box>
+            {agentProfileId && (
+              <Box marginRight={2}>
+                <Text bold color="cyan">Agent:</Text>
+                <Text color="green">
+                  {' '}
+                  {(agentProfileId === 'claude' || agentProfileId === 'cursor')
+                    ? agentProfileId.charAt(0).toUpperCase() + agentProfileId.slice(1)
+                    : agentProfileId}
+                </Text>
+              </Box>
+            )}
             {skillName && (
-              <Box marginTop={0}>
-                <Text bold color="magenta">🎭 Persona:</Text>
-                <Text color="magenta"> {skillName}</Text>
+              <Box>
+                <Text bold color="cyan">Persona:</Text>
+                <Text bold color="magenta"> {skillName}</Text>
               </Box>
             )}
           </Box>
-          
-          {/* Right side: Status, Runtime, and Progress */}
-          <Box flexDirection="column" alignItems="flex-end">
-            <Box flexDirection="row" marginBottom={0}>
-              <Text bold color={statusColor}>Status:</Text>
-              <Text color={statusColor}> {displayStatus}</Text>
-              {isRunning && (
-                <>
-                  <Text dimColor> | </Text>
-                  <Text bold>Running:</Text>
-                  <Text> </Text>
-                  <IsolatedRunningTimer startTime={createdAt} showSeconds={true} />
-                </>
-              )}
-              {showCompletedDuration && (
-                <>
-                  <Text dimColor> | </Text>
-                  <Text bold>Duration:</Text>
-                  <Text> {formatDuration(durationMs!, true)}</Text>
-                </>
-              )}
-            </Box>
-            <Box marginTop={0}>
-              <Text>
-                {isRunning && <Spinner active={true} />}
-                {' '}
-                {renderProgressBar(progressPercent, 30)} <Text bold color="cyan">{progressPercent}%</Text>
-              </Text>
-            </Box>
+          <Box flexDirection="row">
+            <Text bold color={statusColor}>Status:</Text>
+            <Text color={statusColor}> {displayStatus}</Text>
+            {isRunning && (
+              <>
+                <Text dimColor> | </Text>
+                <Text bold>Running:</Text>
+                <Text> </Text>
+                <IsolatedRunningTimer startTime={createdAt} showSeconds={true} />
+              </>
+            )}
+            {showCompletedDuration && (
+              <>
+                <Text dimColor> | </Text>
+                <Text bold>Duration:</Text>
+                <Text> {formatDuration(durationMs!, true)}</Text>
+              </>
+            )}
           </Box>
         </Box>
+        
+        {/* Second row: Progress bar (full width) - only show when running */}
+        {isRunning && (
+          <Box marginTop={2} width="100%" flexDirection="row" alignItems="center">
+            <Box marginRight={1} flexShrink={0}>
+              <Spinner active={true} />
+            </Box>
+            <Box flexGrow={1} minWidth={20}>
+              <Text>
+                {(() => {
+                  // Calculate available width dynamically based on terminal width
+                  // Account for: spinner (2), percentage (6), margins (4), padding (2) = ~14
+                  const availableWidth = Math.max(20, terminalWidth - 14);
+                  return renderProgressBar(progressPercent, availableWidth);
+                })()}
+              </Text>
+            </Box>
+            <Box marginLeft={1} flexShrink={0}>
+              <Text bold color="cyan">{progressPercent}%</Text>
+            </Box>
+          </Box>
+        )}
       </Box>
     </Box>
   );
@@ -184,7 +224,10 @@ const StatusBar = React.memo(function StatusBar({
     prevProps.durationMs === nextProps.durationMs &&
     prevProps.progressPercent === nextProps.progressPercent &&
     prevProps.taskName === nextProps.taskName &&
-    prevProps.skillName === nextProps.skillName
+    prevProps.skillName === nextProps.skillName &&
+    prevProps.agentProfileId === nextProps.agentProfileId &&
+    prevProps.completedSubtasks === nextProps.completedSubtasks &&
+    prevProps.totalSubtasks === nextProps.totalSubtasks
   );
 });
 
@@ -849,6 +892,9 @@ export function TaskDetailView() {
         progressPercent={selectedRun.progressPercent}
         taskName={selectedRun.name}
         skillName={skill?.name || null}
+        agentProfileId={selectedRun.agentProfileId}
+        completedSubtasks={selectedRun.completedSubtasks}
+        totalSubtasks={selectedRun.totalSubtasks}
       />
 
       {/* Two column layout: Chat (left half) | Files+Changes (right half) */}
@@ -988,6 +1034,7 @@ export function TaskDetailView() {
           <Box 
             flexGrow={1}
             flexDirection="column"
+            borderStyle="single"
           >
             <Box paddingX={1} borderBottom={true} borderStyle="single">
               <Text bold color="cyan">📝 Changes</Text>

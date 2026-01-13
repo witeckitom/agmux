@@ -142,6 +142,7 @@ export class ClaudeAgent implements Agent {
 
       // Build command args: -p for print mode, --output-format=stream-json for JSON output
       // Note: --verbose is required when using --print with --output-format=stream-json
+      // --dangerously-skip-permissions bypasses permission prompts (like vibe-kanban does)
       const args = [
         '-y',
         '@anthropic-ai/claude-code@2.1.2',
@@ -150,6 +151,7 @@ export class ClaudeAgent implements Agent {
         '--output-format=stream-json',
         '--input-format=stream-json',
         '--include-partial-messages',
+        '--dangerously-skip-permissions',
       ];
 
       logger.info(`Running: ${npxPath} ${args.join(' ')}`, 'ClaudeAgent');
@@ -399,6 +401,7 @@ export class ClaudeAgent implements Agent {
         '--output-format=stream-json',
         '--input-format=stream-json',
         '--include-partial-messages',
+        '--dangerously-skip-permissions',
         '--fork-session',
         '--resume',
         existingTask.sessionId,
