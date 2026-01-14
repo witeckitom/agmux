@@ -8,7 +8,7 @@
     "agmux": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc && mkdir -p dist/db && cp src/db/schema.sql dist/db/schema.sql",
+    "build": "tsc && mkdir -p dist/db && cp src/db/schema.sql dist/db/schema.sql && cp src/agmux_logo dist/agmux_logo",
     "dev": "tsx src/index.tsx",
     "start": "node dist/index.js",
     "test": "vitest",
