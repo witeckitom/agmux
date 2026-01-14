@@ -47,7 +47,7 @@
     "agent-management"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
     "@inkjs/ui": "^2.0.0",
