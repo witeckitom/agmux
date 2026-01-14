@@ -8,15 +8,15 @@ Inspired by [k9s](https://k9scli.io/) and designed for developers using local AI
 
 Create new agent tasks
 
-![Create new task](./docs/images/task_creation.png)
+![Create new task](https://raw.githubusercontent.com/witeckitom/agmux/main/docs/images/task_creation.png)
 
 View your agents working in parallel and respond when they are done and ready for you to review their work. 
 
-![Task List View](./docs/images/tasks_view.png)
+![Task List View](https://raw.githubusercontent.com/witeckitom/agmux/main/docs/images/tasks_view.png)
 
 Review your agents output and optionally merge their code, or give them feedback.
 
-![Detail View](./docs/images/task_details.png)
+![Detail View](https://raw.githubusercontent.com/witeckitom/agmux/main/docs/images/task_details.png)
 
 ## Features
 
