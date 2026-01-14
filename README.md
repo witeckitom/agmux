@@ -6,7 +6,17 @@ Built with React Ink (TypeScript/React) for a modern CLI experience.
 
 Inspired by [k9s](https://k9scli.io/) and designed for developers using local AI agents (Claude, Codex, Cursor, etc.).
 
-![Main Interface](./docs/images/main-interface.png)
+Create new agent tasks
+
+![Create new task](./docs/images/task_creation.png)
+
+View your agents working in parallel and respond when they are done and ready for you to review their work. 
+
+![Task List View](./docs/images/tasks_view.png)
+
+Review your agents output and optionally merge their code, or give them feedback.
+
+![Detail View](./docs/images/task_details.png)
 
 ## Features
 
@@ -16,8 +26,6 @@ Inspired by [k9s](https://k9scli.io/) and designed for developers using local AI
 - **Git worktree isolation** - Each run executes in its own isolated worktree
 - **Real-time observability** - Progress tracking, logs, and interactive conversations
 - **Customizable themes** - Matrix retro theme included
-
-![Task List View](./docs/images/task-list.png)
 
 ## Installation
 
@@ -33,8 +41,6 @@ Navigate to a git repository where you want to run AI agents, then:
 agmux
 ```
 
-![Agent Running](./docs/images/agent-running.png)
-
 ## Keyboard Shortcuts
 
 | Key | Action |
@@ -44,8 +50,6 @@ agmux
 | `Esc` | Back/Cancel |
 | `q` | Quit |
 | `?` | Help |
-
-![Detail View](./docs/images/detail-view.png)
 
 ## MCP Server
 
