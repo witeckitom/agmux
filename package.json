@@ -1,6 +1,6 @@
 {
   "name": "agmux",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "A local, terminal-based orchestration interface for managing, running, and observing multiple AI agents concurrently",
   "type": "module",
   "main": "dist/index.js",
