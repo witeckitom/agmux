@@ -633,9 +633,44 @@ export function AppProvider({ children, database, projectRoot }: AppProviderProp
           return;
         }
 
-        // Open in VSCode using 'code' command
-        execSync(`code "${absolutePath}"`, { stdio: 'ignore' });
-        logger.info(`Opened worktree in VSCode for task ${runId}`, 'App', { worktreePath: absolutePath });
+        // Open in VSCode - try 'code' command first, fallback to platform-specific methods
+        let opened = false;
+        try {
+          // Try 'code' command first (works if VS Code CLI is in PATH)
+          execSync(`code "${absolutePath}"`, { stdio: 'pipe' });
+          opened = true;
+          logger.info(`Opened worktree in VSCode for task ${runId}`, 'App', { worktreePath: absolutePath });
+        } catch (codeError: any) {
+          // If 'code' command fails, try platform-specific fallbacks
+          if (process.platform === 'darwin') {
+            // macOS: use 'open' command with Visual Studio Code app
+            try {
+              execSync(`open -a "Visual Studio Code" "${absolutePath}"`, { stdio: 'pipe' });
+              opened = true;
+              logger.info(`Opened worktree in VSCode for task ${runId} (using open command)`, 'App', { worktreePath: absolutePath });
+            } catch (openError: any) {
+              logger.error(`Failed to open worktree in VSCode using 'open' command`, 'App', { error: openError });
+            }
+          } else if (process.platform === 'win32') {
+            // Windows: try code.cmd or full path
+            try {
+              execSync(`code.cmd "${absolutePath}"`, { stdio: 'pipe' });
+              opened = true;
+              logger.info(`Opened worktree in VSCode for task ${runId} (using code.cmd)`, 'App', { worktreePath: absolutePath });
+            } catch (cmdError: any) {
+              logger.error(`Failed to open worktree in VSCode using 'code.cmd'`, 'App', { error: cmdError });
+            }
+          }
+          
+          if (!opened) {
+            // If all methods failed, log the original error
+            logger.error(`Failed to open worktree in VSCode for task ${runId}`, 'App', { 
+              error: codeError,
+              message: codeError?.message || 'Unknown error',
+              platform: process.platform
+            });
+          }
+        }
       } catch (error: any) {
         logger.error(`Failed to open worktree in VSCode for task ${runId}`, 'App', { error });
       }
