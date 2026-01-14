@@ -1,0 +1,8 @@
+# Image Placeholders
+
+Replace these placeholder files with actual screenshots:
+
+- main-interface.png - Main TUI interface showing the overall layout
+- task-list.png - Task list view with multiple agents
+- agent-running.png - View of an agent actively running
+- detail-view.png - Detailed view of a single task/agent
